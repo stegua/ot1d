@@ -1,27 +1,37 @@
 # OT1D: Discrete Optimal Transport in 1D by Linear Programming
 
-The OT1D library offers a simple but efficient implementation of an algorithm to compute the Kantorovich-Wasserstein distance between two empirical measures defined in dimension 1, that is, the support points of the measures are in $\mathbb{R}$.
+The OT1D library offers a simple but efficient implementation of an algorithm to compute the Kantorovich-Wasserstein distance between two empirical measures defined in dimension 1, that is, the support points of the measures are in **R**.
 We have designed the algorithm by directly exploiting the [Complementary slackness](https://en.wikipedia.org/wiki/Linear_programming#Complementary_slackness) conditions of Linear Programming. 
-
 The implementation focuses more on efficiency than genericity, and we try to be as efficient as possible in several notable cases.
+We implemented the core algorithm in standard ANSI C++11, and we provide a python3 wrapper, which can be installed with:
 
-We implemented the core algorithm in standard ANSI C++11, and we provide a python wrapper.
+```bash
+pip3 install ot1d
+```
 
-## Details
+The **OT1D** library provides an implementation of Optimal Transport in 1D that is faster than:
+
+1. [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html): it is at least 6x faster than scipy implementation, but it can be up to 11x faster
+2. [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d): it is at least 3x faster then POT, but it can be up to 7x faster
+
+
+**Remark**: **OT1D** is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithm based on efficient Linear Programming implementation.
+
+## Usage
 The main function of the **OT1D** library is the following:
 
 ```python
-z = OT1D(x, y, mu, nu, p=2, sorting=True, threads=8)
+z = OT1D(x, y, mu=None, nu=None, p=2, sorting=True, threads=8)
 ```
 
 The parameters of the function are:
 
 * `x`: the support points of the first measure
 * `y`: the support points of the second measure
-* `mu`: the weights of the first measure
-* `nu`: the weights of the second measure
+* `mu`: the weights of the first measure. If equal to `None`, all the samples have the same mass.
+* `nu`: the weights of the second measure. If equal to `None`, all the samples have the same mass.
 * `p`: the order of the Wasserstein distance (p=1 or p=2)
-* `sorting`: equal to `True` if the function must sort the support points given in input
+* `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm
 
 The first four parameters can be given in input as python lists or numpy arrays.
@@ -40,38 +50,17 @@ The parameters of the function are:
 
 
 ## Details
-Given two empirical distributions 
-$\mu=\sum_i^m \mu_i \delta_{x_i}$ and $\nu=\sum_j^n \nu_j \delta_{y_j}$,
-where $x_i,y_j \in \mathbb{R}$ (i.e., dimension 1), the Kantorovich-Wasserstein distance is the given by optimal solution of the followong linear program:
+Given two empirical distributions, the Kantorovich-Wasserstein distance is the given by optimal solution of a linear program, known as the transportation problem.
+While this is a general linear program, when the costs are defined among points belonging to the real line, 
+the problem can be solved with an algorithm having worst-case time complexity of *O(n log n)*.
+This can be shown by writing first the dual linear program, and then the slackness condition.
 
-$$
-\begin{align}
-\min & \sum_i^m \sum_j^n d(x_i, y_j)^p \pi_{ij} \\
-\mbox{s.t.]} 
-& \sum_j^n \pi_{ij} = \mu_i, & i=1,\dots,m\\
-& \sum_j^m \pi_{ij} = \nu_j, & j=1,\dots,n\\
-& \pi_{ij} \geq 0, & i=1,\dots,m, \; j=1,\dots,n
-\end{align}
-$$
-
-While this is a general linear program, given the costs are defined among point of the real lines, 
-it can be solved with an algorithm having worst case time complexity of *O(n log n)*.
-This can be shown by writing first the dual program and then the slackness condition.
-
-The key step of the algorithm is the sorting of the two sets of support points $x_i$ and $y_j$.
-We solve this sorting using a customized parallel sorting algorithm implemented in C++, which combines the very fast [pdqsort](https://github.com/orlp/pdqsort)
+The key step of the algorithm is sorting of the two arrays of support points *x* and *y*.
+We sort the arrays by using a customized parallel sorting algorithm implemented in C++, which combines the very fast [pdqsort](https://github.com/orlp/pdqsort)
 and [parasort](https://github.com/baserinia/parallel-sort).
 
 
-## Installation
-
-To install `OT1D` you can run the following command:
-
-```bash
-pip3 install ot1d
-```
-
-## Prerequisities for compilation
+### Prerequisities for compilation
 
 You want to compile the source code and the python wrapper, you only need the following two standard python libraries:
 
@@ -84,15 +73,23 @@ You might need to install `python-dev` library, which on Linux can be installed 
 apt install python3-dev  # Ubuntu
 ```
 
-## Testing
+### Installation
+
+To install `OT1D` you can run the following command:
+
+```bash
+pip3 install ot1d
+```
+
+### Testing
 
 For testing the library, you can run the following command:
 
 ```bash
-python3 OT1D_test.py
+python3 basic_test.py
 ```
 
-A basic test snippet is the following:
+The basic test snippet is the following:
 
 ```python
 import numpy as np
@@ -115,12 +112,7 @@ and the output should be similar to:
 Wasserstein distance of order 2, W2(x,y) = 1.0002549459050794
 ```
 
-## Performance
-This library provides a faster implementation of 1-dimensional Optimal Transport than:
-
-1. [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html): it is at least 6x faster than scipy implementation, but it can be up to 11x faster
-2. [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d): it is at least 3x faster then POT, but it can be up to 7x faster
-
+### Testing for Performance
 These results can be reproduced running the following command (you need to have installed [scipy](https://scipy.org/) and [pot](https://pythonot.github.io/)):
 ```bash
 python3 OT1D_test.py
