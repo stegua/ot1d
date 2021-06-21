@@ -1,0 +1,4 @@
+include *.pyx
+include *.pyd
+include *.h
+include OT1D.hpp
