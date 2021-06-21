@@ -14,8 +14,8 @@ np.random.seed(13)
 N = 1000000
 
 # Uniform samples
-x = np.random.uniform(1, 2, N)
-y = np.random.uniform(0, 1, N)
+x = [i for i in np.random.uniform(1, 2, N)]
+y = [j for j in np.random.uniform(0, 1, N)]
 
 z = OT1D(x, y, p=2, sorting=True, threads=16)
 
