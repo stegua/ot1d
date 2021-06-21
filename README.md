@@ -14,6 +14,7 @@ The **OT1D** library provides an implementation of Optimal Transport in 1D that 
 1. [Scipy](https://www.scipy.org/): it is at least 6x faster than the [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html), but it can be up to 11x faster
 2.  [POT](https://pythonot.github.io/): it is at least 2x faster than [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d), but it can be up to 7x faster
 
+The real speedup will depend on your platform and compiler.
 
 ### DotLIB
 OT1D** is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithms based on efficient Linear Programming implementation.
