@@ -14,7 +14,7 @@ import platform
 
 CC_ARGS = [
     '-Wno-unused-function', '-std=c++11', '-O2', '-ffast-math',
-    '-DNDEBUG', '-fno-wrapv', '-march=native', '-Wclass-memaccess'
+    '-DNDEBUG', '-fno-wrapv', '-march=native'
 ]
 
 LD_ARGS = ['-O2', '-lm', '-pthread', '-fno-wrapv']
@@ -43,7 +43,7 @@ with open('README.md', encoding="utf-8") as f:
 
 setup(
     name='OT1D',
-    version='0.3.2',
+    version='0.3.3',
     packages=find_packages(),
     description='Discrete Optimal Transport in 1D by Linear Programming',
     author='Stefano Gualandi',
