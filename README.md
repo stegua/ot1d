@@ -9,13 +9,14 @@ We implemented the core algorithm in standard ANSI C++11, and we provide a pytho
 pip3 install ot1d
 ```
 
-The **OT1D** library provides an implementation of Optimal Transport in 1D that is faster than:
+The **OT1D** library provides an implementation of Optimal Transport in 1D that is faster than (see below for details):
 
-1. [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html): it is at least 6x faster than scipy implementation, but it can be up to 11x faster
-2. [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d): it is at least 3x faster then POT, but it can be up to 7x faster
+1. [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html): it is at least 6x faster than the [scipy](https://www.scipy.org/) implementation, but it can be up to 11x faster
+2. [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d): it is at least 2x faster then POT, but it can be up to 7x faster
 
 
-**Remark**: **OT1D** is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithm based on efficient Linear Programming implementation.
+### DotLIB
+OT1D** is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithms based on efficient Linear Programming implementation.
 
 ## Usage
 The main function of the **OT1D** library is the following:
@@ -57,13 +58,14 @@ This can be shown by writing first the dual linear program, and then the slackne
 
 The key step of the algorithm is sorting of the two arrays of support points *x* and *y*.
 We sort the arrays by using a customized parallel sorting algorithm implemented in C++, which combines the very fast [pdqsort](https://github.com/orlp/pdqsort)
-and [parasort](https://github.com/baserinia/parallel-sort).
+with [parasort](https://github.com/baserinia/parallel-sort). See the linked webpages for the license type of these two libraries.
 
 
 ### Prerequisities for compilation
 
 You want to compile the source code and the python wrapper, you only need the following two standard python libraries:
 
+* A C++ compiler compliant with the `C++11` standard.
 * cython
 * numpy
 
