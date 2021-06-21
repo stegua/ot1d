@@ -27,7 +27,7 @@ if platform.system() == 'Windows':
 
 if platform.system() == 'Darwin':
     CC_ARGS = [
-        '-std=c++11', '-stdlib=libc++', '-O2', '-ffast-math', '-DNDEBUG', '-march=native'
+        '-std=c++11', '-stdlib=libc++', '-O2', '-ffast-math', '-DNDEBUG'
     ]
     LD_ARGS = ['-O2', '-lm', '-pthread', '-fno-wrapv']
 
@@ -43,7 +43,7 @@ with open('README.md', encoding="utf-8") as f:
 
 setup(
     name='OT1D',
-    version='0.3.3',
+    version='0.3.4',
     packages=find_packages(),
     description='Discrete Optimal Transport in 1D by Linear Programming',
     author='Stefano Gualandi',

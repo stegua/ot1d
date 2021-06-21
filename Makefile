@@ -31,7 +31,7 @@ laptop: ${OUT_DIR} ${SRC}/TestCLI.cpp
 # Build and Test Python wrapper
 buildpython:
 	cp ${INCLUDE}/OT1D.hpp ./python/
-	cp ${INCLUDE}/README.md ./python/
+	cp README.md ./python/
 	cd python && python3 setup.py build_ext --inplace && python3 basic_test.py
 
 # Run longer test:

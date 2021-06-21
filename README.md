@@ -14,7 +14,7 @@ The **OT1D** library provides an implementation of Optimal Transport in 1D that 
 1. [Scipy](https://www.scipy.org/): it is at least 6x faster than [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html), but it can be up to 11x faster
 2.  [POT](https://pythonot.github.io/): it is at least 2x faster than [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d), but it can be up to 7x faster
 
-The real speedup will depend on your platform and compiler. See below for running a performance test on your computer.
+The real speedup will depend on your computer platform (i.e., numebr of cores), your OS, and compiler. For running a performance test on your computer, see below, or run the python script [OT1D_test](https://github.com/stegua/ot1d/blob/main/python/OT1D_test.py). For some strange reason, the speed ups on Mac laptops are larger than for other architectures.
 
 **REMARK:** If you find instances where **OT1D** is slower, please, let us know.
 

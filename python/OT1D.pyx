@@ -38,14 +38,14 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8):
 
 # Support for fast sorting
 def parasort(X, A=None, threads=8):
-    if not X.flags['C_CONTIGUOUS']:
+    if not X.flags['C_CONTIGUOUS'] or type(X) == list:
         X = np.ascontiguousarray(X, dtype=float) 
     cdef double[::1] Xmv = X
 
     if A is None:
         return _parasort(len(X), &Xmv[0], threads)
 
-    if not A.flags['C_CONTIGUOUS']:
+    if not A.flags['C_CONTIGUOUS'] or type(A) == list:
         A = np.ascontiguousarray(A, dtype=float) 
     cdef double[::1] Amv = A    
 
@@ -58,11 +58,11 @@ def parasort(X, A=None, threads=8):
 cdef double OT_1Da(X, Y, sorting=True, threads=8):
     m = len(X)
     n = len(Y)
-    if not X.flags['C_CONTIGUOUS']:
+    if not X.flags['C_CONTIGUOUS'] or type(X) == list:
         X = np.ascontiguousarray(X, dtype=float) 
     cdef double[::1] Xmv = X
         
-    if not Y.flags['C_CONTIGUOUS']:
+    if not Y.flags['C_CONTIGUOUS'] or type(Y) == list:
         Y = np.ascontiguousarray(Y, dtype=float) 
     cdef double[::1] Ymv = Y
     
@@ -74,11 +74,11 @@ cdef double OT_1Da(X, Y, sorting=True, threads=8):
 cdef double OT_1Db(X, Y, sorting=True, threads=8):
     m = len(X)
     n = len(Y)
-    if not X.flags['C_CONTIGUOUS']:
+    if not X.flags['C_CONTIGUOUS'] or type(X) == list:
         X = np.ascontiguousarray(X, dtype=float) 
     cdef double[::1] Xmv = X
         
-    if not Y.flags['C_CONTIGUOUS']:
+    if not Y.flags['C_CONTIGUOUS'] or type(Y) == list:
         Y = np.ascontiguousarray(Y, dtype=float) 
     cdef double[::1] Ymv = Y
 
@@ -90,19 +90,19 @@ cdef double OT_1Db(X, Y, sorting=True, threads=8):
 cdef double OT_1Dc(X, Y, A, B, sorting=True, threads=8):
     m = len(X)
     n = len(Y)
-    if not X.flags['C_CONTIGUOUS']:
+    if not X.flags['C_CONTIGUOUS'] or type(X) == list:
         X = np.ascontiguousarray(X, dtype=float) 
     cdef double[::1] Xmv = X
         
-    if not Y.flags['C_CONTIGUOUS']:
+    if not Y.flags['C_CONTIGUOUS'] or type(Y) == list:
         Y = np.ascontiguousarray(Y, dtype=float)
     cdef double[::1] Ymv = Y
 
-    if not A.flags['C_CONTIGUOUS']:
+    if not A.flags['C_CONTIGUOUS'] or type(A) == list:
         A = np.ascontiguousarray(A, dtype=float) 
     cdef double[::1] Amv = A
         
-    if not B.flags['C_CONTIGUOUS']:
+    if not B.flags['C_CONTIGUOUS'] or type(B) == list:
         B = np.ascontiguousarray(B, dtype=float) 
     cdef double[::1] Bmv = B
     
@@ -112,19 +112,19 @@ cdef double OT_1Dc(X, Y, A, B, sorting=True, threads=8):
 cdef double OT_1Dd(X, Y, A, B, sorting=True, threads=8):
     m = len(X)
     n = len(Y)
-    if not X.flags['C_CONTIGUOUS']:
+    if not X.flags['C_CONTIGUOUS'] or type(X) == list:
         X = np.ascontiguousarray(X, dtype=float) 
     cdef double[::1] Xmv = X
         
-    if not Y.flags['C_CONTIGUOUS']:
+    if not Y.flags['C_CONTIGUOUS'] or type(Y) == list:
         Y = np.ascontiguousarray(Y, dtype=float)
     cdef double[::1] Ymv = Y
 
-    if not A.flags['C_CONTIGUOUS']:
+    if not A.flags['C_CONTIGUOUS'] or type(A) == list:
         A = np.ascontiguousarray(A, dtype=float) 
     cdef double[::1] Amv = A
         
-    if not B.flags['C_CONTIGUOUS']:
+    if not B.flags['C_CONTIGUOUS'] or type(B) == list:
         B = np.ascontiguousarray(B, dtype=float) 
     cdef double[::1] Bmv = B
     
