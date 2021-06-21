@@ -21,16 +21,16 @@ from OT1D cimport _parasort_mu as _parasort_mu
 
 # One function for optimal transport
 def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8):
-    if type(X) == list or not X.flags['C_CONTIGUOUS']:
+    if type(X) == list or not X.flags['C_CONTIGUOUS'] or X.dtype != float:
         X = np.ascontiguousarray(X, dtype=float) 
 
-    if type(Y) == list or not Y.flags['C_CONTIGUOUS']:
+    if type(Y) == list or not Y.flags['C_CONTIGUOUS'] or Y.dtype != float:
         Y = np.ascontiguousarray(Y, dtype=float) 
 
-    if A is not None and (type(A) == list or not A.flags['C_CONTIGUOUS']):
+    if A is not None and (type(A) == list or not A.flags['C_CONTIGUOUS'] or A.dtype != float):
         A = np.ascontiguousarray(A, dtype=float) 
 
-    if B is not None and (type(B) == list or not B.flags['C_CONTIGUOUS']):
+    if B is not None and (type(B) == list or not B.flags['C_CONTIGUOUS'] or B.dtype != float):
         B = np.ascontiguousarray(B, dtype=float) 
 
     # Wassertein of order 1
@@ -50,11 +50,14 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8):
 
 # Support for fast sorting
 def parasort(X, A=None, threads=8):
-    if not X.flags['C_CONTIGUOUS'] or type(X) == list:
+    if not X.flags['C_CONTIGUOUS'] or type(X) == list or X.dtype != float:
         X = np.ascontiguousarray(X, dtype=float) 
     cdef double[::1] Xmv = X
     if A is None:
         return _parasort(len(X), &Xmv[0], threads)
+
+    if not A.flags['C_CONTIGUOUS'] or type(A) == list or A.dtype != float:
+        A = np.ascontiguousarray(A, dtype=float) 
 
     cdef double[::1] Amv = A    
     return _parasort_mu(len(X), &Xmv[0], &Amv[0], threads)
