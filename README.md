@@ -9,15 +9,15 @@ We implemented the core algorithm in standard ANSI C++11, and we provide a pytho
 pip3 install ot1d
 ```
 
-The **OT1D** library provides an implementation of Optimal Transport in 1D that is faster than (see below for details):
+The **OT1D** library provides an implementation of Optimal Transport in 1D that is faster than:
 
-1. [Scipy](https://www.scipy.org/): it is at least 6x faster than the [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html), but it can be up to 11x faster
+1. [Scipy](https://www.scipy.org/): it is at least 6x faster than [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html), but it can be up to 11x faster
 2.  [POT](https://pythonot.github.io/): it is at least 2x faster than [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d), but it can be up to 7x faster
 
-The real speedup will depend on your platform and compiler.
+The real speedup will depend on your platform and compiler. See below for running a performance test on your computer.
 
 ### DotLIB
-OT1D** is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithms based on efficient Linear Programming implementation.
+This tiny library is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithms based on efficient Linear Programming implementations.
 
 ## Usage
 The main function of the **OT1D** library is the following:
@@ -50,7 +50,6 @@ The parameters of the function are:
 * `threads`: number of threads to use by the parallel sorting algorithm
 
 
-
 ## Details
 Given two empirical distributions, the Kantorovich-Wasserstein distance is the given by optimal solution of a linear program, known as the transportation problem.
 While this is a general linear program, when the costs are defined among points belonging to the real line, 
@@ -67,8 +66,8 @@ with [parasort](https://github.com/baserinia/parallel-sort). See the linked webp
 You want to compile the source code and the python wrapper, you only need the following two standard python libraries:
 
 * A C++ compiler compliant with the `C++11` standard.
-* cython
-* numpy
+* [cython](https://cython.org/)
+* [numpy](https://numpy.org/)
 
 You might need to install `python-dev` library, which on Linux can be installed by:
 
