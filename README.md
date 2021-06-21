@@ -21,6 +21,15 @@ The real speedup will depend on your platform and compiler. See below for runnin
 ### DotLIB
 This tiny library is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithms based on efficient Linear Programming implementations.
 
+## Basic Usage: Colab Notebook
+
+The simplest way to test this library is to run the following notebook on Colab:
+
+| Data | Notebook | Link |
+|:-|:-|:-|
+|**[2021/06/21]**|*Testing and evaluating OT1D*|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/stegua/notebooks/Testing_OT1D.ipynb)|
+
+
 ## Usage
 The main function of the **OT1D** library is the following:
 
@@ -173,7 +182,7 @@ POT  : average time = 0.039 speedup = 3.0
 OT1D : average time = 0.013 speedup = 1.0```
 ```
 
-Please, contact us by email if you encounter any issue.
+Please, contact us by email if you encounter any issues.
 
 ### Author and maintainer
 Stefano Gualandi, stefano.gualandi@gmail.com.

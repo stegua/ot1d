@@ -173,7 +173,7 @@ POT  : average time = 0.039 speedup = 3.0
 OT1D : average time = 0.013 speedup = 1.0```
 ```
 
-Please, contact us by email if you encounter any issue.
+Please, contact us by email if you encounter any issues.
 
 ### Author and maintainer
 Stefano Gualandi, stefano.gualandi@gmail.com.
