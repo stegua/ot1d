@@ -34,7 +34,7 @@ if platform.system() == 'Darwin':
 
 extensions = Extension(name="OT1D",
                        sources=["OT1D.pyx"],
-                       include_dirs=['../include'],
+                       include_dirs=['./'],
                        extra_compile_args=CC_ARGS,
                        extra_link_args=LD_ARGS)
 
@@ -43,15 +43,15 @@ with open('README.md', encoding="utf-8") as f:
 
 setup(
     name='OT1D',
-    version='0.3.1',
+    version='0.3.2',
     packages=find_packages(),
     description='Discrete Optimal Transport in 1D by Linear Programming',
     author='Stefano Gualandi',
     author_email='stefano.gualandi@gmail.com',
-    url='https://github.com/dotlib/ot1d',
+    url='https://github.com/stegua/ot1d',
     platforms=['linux', 'macosx', 'windows'],
     setup_requires=['numpy', 'cython'],
-    install_requires=['numpy'],
+    install_requires=['numpy', 'cython'],
     include_dirs=np.get_include(),
     long_description=long_descr,
     long_description_content_type='text/markdown',
