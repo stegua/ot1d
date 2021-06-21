@@ -47,7 +47,7 @@ The parameters of the function are:
 * `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm
 
-The first four parameters can be given in input as python lists or numpy arrays.
+The first four parameters can be given in input as numpy arrays (*preferred*) or python lists.
 
 In addition, we expose the following in-place parallel sorting function:
 ```python
@@ -60,6 +60,7 @@ The parameters of the function are:
 * `mu`: the weights of the given measure. If equal to`None`, only the support points are sorted
 * `threads`: number of threads to use by the parallel sorting algorithm
 
+The first two parameters can be given in input as numpy arrays (*preferred*) or python lists.
 
 ## Details
 Given two empirical distributions, the Kantorovich-Wasserstein distance is the given by optimal solution of a linear program, known as the transportation problem.
