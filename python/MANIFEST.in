@@ -1,4 +1,4 @@
-include *.pyx
+include *.pxd
 include *.pyd
 include *.h
 include OT1D.hpp
