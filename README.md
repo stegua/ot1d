@@ -16,6 +16,8 @@ The **OT1D** library provides an implementation of Optimal Transport in 1D that 
 
 The real speedup will depend on your platform and compiler. See below for running a performance test on your computer.
 
+**REMARK:** If you find instances where **OT1D** is slower, please, let us know.
+
 ### DotLIB
 This tiny library is part of [dotlib](https://github.com/stegua/dotlib), a large project to develop Optimal Transport algorithms based on efficient Linear Programming implementations.
 
