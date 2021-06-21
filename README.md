@@ -27,7 +27,7 @@ The simplest way to test this library is to run the following notebook on Colab:
 
 | Data | Notebook | Link |
 |:-|:-|:-|
-|**[2021/06/21]**|*Testing and evaluating OT1D*|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/stegua/notebooks/Testing_OT1D.ipynb)|
+|**[2021/06/21]**|*Testing and evaluating OT1D*|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/stegua/ot1d/blob/main/notebooks/Testing_OT1D.ipynb)|
 
 
 ## Usage
