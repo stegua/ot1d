@@ -38,7 +38,7 @@ extensions = Extension(name="OT1D",
                        extra_compile_args=CC_ARGS,
                        extra_link_args=LD_ARGS)
 
-with open('../README.md', encoding="utf-8") as f:
+with open('README.md', encoding="utf-8") as f:
     long_descr = f.read()
 
 setup(
