@@ -120,7 +120,7 @@ These results can be reproduced running the following command (you need to have 
 python3 OT1D_test.py
 ```
 which output is should be similar to the following (but it depends on your platform):
-```bash
+```
 --------------- TEST 3: Unsorted input (average runtime) --------------------
 For OT1D using 8 threads
 
