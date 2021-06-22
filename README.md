@@ -1,5 +1,7 @@
 # OT1D: Discrete Optimal Transport in 1D by Linear Programming
 
+[![build-update Actions Status](https://github.com/stegua/ot1d/workflows/build-update/badge.svg)](https://github.com/stegua/ot1d/actions) <a class="reference external" href="https://badge.fury.io/py/ot1d"><img alt="PyPI version" src="https://badge.fury.io/py/ot1d.svg"></a> [![Downloads](https://pepy.tech/badge/ot1d)](https://pepy.tech/project/ot1d) [![Downloads](https://pepy.tech/badge/ot1d/month)](https://pepy.tech/project/ot1d) [![Downloads](https://pepy.tech/badge/ot1d/week)](https://pepy.tech/project/ot1d)
+
 The OT1D library offers a simple but efficient implementation of an algorithm to compute the Kantorovich-Wasserstein distance between two empirical measures defined in dimension 1, that is, the support points of the measures are in **R**.
 We have designed the algorithm by directly exploiting the [Complementary slackness](https://en.wikipedia.org/wiki/Linear_programming#Complementary_slackness) conditions of Linear Programming. 
 The implementation focuses more on efficiency than genericity, and we try to be as efficient as possible in several notable cases.
@@ -47,7 +49,7 @@ The parameters of the function are:
 * `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm
 
-The first four parameters can be given in input as python lists or numpy arrays.
+The first four parameters can be given in input as numpy arrays (*preferred*) or python lists.
 
 In addition, we expose the following in-place parallel sorting function:
 ```python
@@ -60,6 +62,7 @@ The parameters of the function are:
 * `mu`: the weights of the given measure. If equal to`None`, only the support points are sorted
 * `threads`: number of threads to use by the parallel sorting algorithm
 
+The first two parameters can be given in input as numpy arrays (*preferred*) or python lists.
 
 ## Details
 Given two empirical distributions, the Kantorovich-Wasserstein distance is the given by optimal solution of a linear program, known as the transportation problem.
