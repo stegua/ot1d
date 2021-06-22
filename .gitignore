@@ -36,3 +36,4 @@
 bin/test
 *.pyd
 *.exp
+*.whl
