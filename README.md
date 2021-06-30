@@ -1,6 +1,6 @@
 # OT1D: Discrete Optimal Transport in 1D by Linear Programming
 
-[![build-update Actions Status](https://github.com/stegua/ot1d/workflows/build-update/badge.svg)](https://github.com/stegua/ot1d/actions) <a class="reference external" href="https://badge.fury.io/py/ot1d"><img alt="PyPI version" src="https://badge.fury.io/py/ot1d.svg"></a> [![Downloads](https://pepy.tech/badge/ot1d)](https://pepy.tech/project/ot1d) [![Downloads](https://pepy.tech/badge/ot1d/month)](https://pepy.tech/project/ot1d) [![Downloads](https://pepy.tech/badge/ot1d/week)](https://pepy.tech/project/ot1d)
+<a class="reference external" href="https://badge.fury.io/py/ot1d"><img alt="PyPI version" src="https://badge.fury.io/py/ot1d.svg"></a> [![build-update Actions Status](https://github.com/stegua/ot1d/workflows/build-update/badge.svg)](https://github.com/stegua/ot1d/actions)  [![Downloads](https://pepy.tech/badge/ot1d)](https://pepy.tech/project/ot1d) [![Downloads](https://pepy.tech/badge/ot1d/month)](https://pepy.tech/project/ot1d) [![Downloads](https://pepy.tech/badge/ot1d/week)](https://pepy.tech/project/ot1d)
 
 The OT1D library offers a simple but efficient implementation of an algorithm to compute the Kantorovich-Wasserstein distance between two empirical measures defined in dimension 1, that is, the support points of the measures are in **R**.
 We have designed the algorithm by directly exploiting the [Complementary slackness](https://en.wikipedia.org/wiki/Linear_programming#Complementary_slackness) conditions of Linear Programming. 
