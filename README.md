@@ -36,7 +36,7 @@ The simplest way to test this library is to run the following notebook on Colab:
 The main function of the **OT1D** library is the following:
 
 ```python
-z = OT1D(x, y, mu=None, nu=None, p=2, sorting=True, threads=8)
+z = OT1D(x, y, mu=None, nu=None, p=2, sorting=True, threads=8, plan=False)
 ```
 
 The parameters of the function are:
@@ -48,9 +48,11 @@ The parameters of the function are:
 * `p`: the order of the Wasserstein distance (p=1 or p=2)
 * `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm
+* `plan`: if equal to `True` , the function returns the optimal transportation plan (see example `interpolate.py`)
 
 The first four parameters can be given in input as numpy arrays (*preferred*) or python lists.
 
+### Sorting at the speed of light
 In addition, we expose the following in-place parallel sorting function:
 ```python
 parasort(x, mu=None, threads=8)
