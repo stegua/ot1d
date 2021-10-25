@@ -36,7 +36,37 @@
 // https://github.com/baserinia/parallel-sort
 #include "parasort.h"
 
-typedef std::pair<double, double> dbl_pair_t;
+typedef std::pair<double, double>  dbl_pair_t;
+
+struct dbl_idx_t
+{
+    dbl_idx_t() : xi(0.0), i(-1) {}
+    dbl_idx_t(double _x, int _i) : xi(_x), i(_i) {}
+
+    double xi;
+    int i;
+
+    const bool operator < ( const dbl_idx_t &r ) const {
+        return xi < r.xi;
+    }
+};
+
+
+struct dbl_pair_idx_t
+{
+    dbl_pair_idx_t() : xi(0.0), ai(0.0), i(-1) {}
+    dbl_pair_idx_t(double _x, double _a, int _i) : xi(_x), ai(_a), i(_i) {}
+
+    double xi;
+    double ai;
+    int i;
+
+    const bool operator < ( const dbl_pair_idx_t &r ) const {
+        if ( xi < r.xi ) return true;
+        if ( xi > r.xi ) return false;
+        return ai < r.ai;
+    }
+};
     
 // Utilities: fast sort
 void _parasort(int n, double* x, int threads=8) {
@@ -313,7 +343,7 @@ double OT1Dc(int m, int n, double* x, double* y, double* a, double* b, bool sort
     return z;
 }
 
-// Wasserstein-1D, p=1, with weights
+// Wasserstein-1D, p=2, with weights
 double OT1Dd(int m, int n, double* x, double* y, double* a, double* b, bool sorting, int threads=8) {
     std::vector<dbl_pair_t> mu;
     std::vector<dbl_pair_t> nu;
@@ -379,6 +409,521 @@ double OT1Dd(int m, int n, double* x, double* y, double* a, double* b, bool sort
             }
         }
     }
+
+    return sqrt(z);
+}
+
+// Wasserstein-1D, p=1, without weights, n=m
+double OT1Da0_withplan(int n, double* x, double* y, int* map, double* mass, int* map_size, bool sorting, int threads=8) {
+    std::vector<dbl_idx_t> mu;
+    std::vector<dbl_idx_t> nu;
+    mu.reserve(n);
+    nu.reserve(n);
+
+    for (int i = 0; i < n; i++)
+        mu.emplace_back(x[i], i);
+    for (int j = 0; j < n; j++)
+        nu.emplace_back(y[j], j);
+
+    if (sorting) {
+        if (threads == 1) {
+            pdqsort(mu.begin(), mu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+            pdqsort(nu.begin(), nu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+        } else {
+            parasort_mu(n, &mu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+
+            parasort_mu(n, &nu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+        }
+    }
+    
+    double z = 0.0;
+    double a = 1.0/n;
+    
+    double X = 0.0;
+    double Y = 0.0;
+        
+    int* pi = (int*)malloc(2*n * sizeof(int));
+    double* piw = (double*)calloc(n, sizeof(double));
+
+    int idx = 0;
+    int wdx = 0;
+
+    for(int i = 0; i < n; i++) {
+        X = mu[i].xi;
+        Y = nu[i].xi;
+ 
+        z += fabs(X - Y);
+
+        pi[idx] = mu[i].i;    // From
+        pi[idx+1] = nu[i].i;  // To
+        piw[wdx++] = a;       // Quantity of mass transported
+
+        idx += 2;
+   }
+
+    // Copy back the solutions
+    memcpy(map,  pi,  idx*sizeof(int));
+    memcpy(mass, piw, wdx*sizeof(double));
+    map_size[0] = wdx;
+
+    free(pi);
+    free(piw);
+
+    return z/n;
+}
+
+// Wasserstein-1D, p=2, without weights, n=m
+double OT1Db0_withplan(int n, double* x, double* y, int* map, double* mass, int* map_size, bool sorting, int threads=8) {
+    std::vector<dbl_idx_t> mu;
+    std::vector<dbl_idx_t> nu;
+    mu.reserve(n);
+    nu.reserve(n);
+
+    for (int i = 0; i < n; i++)
+        mu.emplace_back(x[i], i);
+    for (int j = 0; j < n; j++)
+        nu.emplace_back(y[j], j);
+
+    if (sorting) {
+        if (threads == 1) {
+            pdqsort(mu.begin(), mu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+            pdqsort(nu.begin(), nu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+        } else {
+            parasort_mu(n, &mu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+
+            parasort_mu(n, &nu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+        }
+    }
+    
+    double z = 0.0;
+    double a = 1.0/n;
+    
+    double X = 0.0;
+    double Y = 0.0;
+        
+    int* pi = (int*)malloc(2*n * sizeof(int));
+    double* piw = (double*)calloc(n, sizeof(double));
+
+    int idx = 0;
+    int wdx = 0;
+
+    for(int i = 0; i < n; i++) {
+        X = mu[i].xi;
+        Y = nu[i].xi;
+
+        z += (X - Y)*(X - Y);
+
+        pi[idx] = mu[i].i;    // From
+        pi[idx+1] = nu[i].i;  // To
+        piw[wdx++] = a;       // Quantity of mass transported
+
+        idx += 2;
+    }
+
+    // Copy back the solutions
+    memcpy(map,  pi,  idx*sizeof(int));
+    memcpy(mass, piw, wdx*sizeof(double));
+    map_size[0] = wdx;
+
+    free(pi);
+    free(piw);
+
+    return sqrt(z/n);
+}
+
+// Wasserstein-1D, p=1, without weights
+double OT1Da_withplan(int m, int n, double* x, double* y, int* map, double* mass, int* map_size, bool sorting, int threads=8) {
+    std::vector<dbl_idx_t> mu;
+    std::vector<dbl_idx_t> nu;
+    mu.reserve(m);
+    nu.reserve(n);
+
+    for (int i = 0; i < m; i++)
+        mu.emplace_back(x[i], i);
+    for (int j = 0; j < n; j++)
+        nu.emplace_back(y[j], j);
+
+    if (sorting) {
+        if (threads == 1) {
+            pdqsort(mu.begin(), mu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+            pdqsort(nu.begin(), nu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+        } else {
+            parasort_mu(m, &mu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+
+            parasort_mu(n, &nu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+        }
+    }
+
+    int i = 0;
+    int j = 0;
+    
+    double z = 0.0;
+    double d = 0;
+    double a = 1.0/m;
+    double b = 1.0/n;
+    
+    double X = mu[i].xi;
+    double Y = nu[j].xi;
+        
+    int* pi = (int*)malloc(2*(n+m-1) * sizeof(int));
+    double* piw = (double*)calloc(n+m-1, sizeof(double));
+
+    int idx = 0;
+    int wdx = 0;
+
+    while (i < m && j < n) {
+        d = fabs(X - Y);
+        pi[idx] = mu[i].i;    // From
+        pi[idx+1] = nu[j].i;  // To
+        idx += 2;
+
+        if (a == b) {
+            z += a*d;
+            piw[wdx++] = a;   // Quantity of mass transported
+
+            i = i+1;
+            j = j+1;
+            X = mu[i].xi;
+            Y = nu[j].xi;
+            a = 1.0/m;
+            b = 1.0/n;
+        } else {
+            if (a > b) {
+                z += b*d;
+                piw[wdx++] = b; // Quantity of mass transported
+
+                a = a - b;
+                j = j + 1;
+                Y = nu[j].xi;
+                b = 1.0/n;
+            } else {
+                z += a*d;
+                piw[wdx++] = a; // Quantity of mass transported
+
+                a = a - a;
+                i = i + 1;
+                X = mu[i].xi;
+                a = 1.0/m;
+            }
+        }
+    }
+
+    // Copy back the solutions
+    memcpy(map,  pi,  idx*sizeof(int));
+    memcpy(mass, piw, wdx*sizeof(double));
+    map_size[0] = wdx;
+
+    free(pi);
+    free(piw);
+
+    return z;
+}
+
+// Wasserstein-1D, p=2, without weights
+double OT1Db_withplan(int m, int n, double* x, double* y, int* map, double* mass, int* map_size, bool sorting, int threads=8) {
+    std::vector<dbl_idx_t> mu;
+    std::vector<dbl_idx_t> nu;
+    mu.reserve(m);
+    nu.reserve(n);
+
+    for (int i = 0; i < m; i++)
+        mu.emplace_back(x[i], i);
+    for (int j = 0; j < n; j++)
+        nu.emplace_back(y[j], j);
+
+    if (sorting) {
+        if (threads == 1) {
+            pdqsort(mu.begin(), mu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+            pdqsort(nu.begin(), nu.end(), [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            });
+        } else {
+            parasort_mu(m, &mu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+
+            parasort_mu(n, &nu[0], [](const dbl_idx_t& v, const dbl_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+        }
+    }
+
+    int i = 0;
+    int j = 0;
+    
+    double z = 0.0;
+    double d = 0;
+    double a = 1.0/m;
+    double b = 1.0/n;
+    
+    double X = mu[i].xi;
+    double Y = nu[j].xi;
+        
+    int* pi = (int*)malloc(2*(n+m-1) * sizeof(int));
+    double* piw = (double*)calloc(n+m-1, sizeof(double));
+
+    int idx = 0;
+    int wdx = 0;
+
+    while (i < m && j < n) {
+        d = (X - Y)*(X - Y);
+        pi[idx] = mu[i].i;    // From
+        pi[idx+1] = nu[j].i;  // To
+        idx += 2;
+
+        if (a == b) {
+            z += a*d;
+            piw[wdx++] = a;   // Quantity of mass transported
+
+            i = i+1;
+            j = j+1;
+            X = mu[i].xi;
+            Y = nu[j].xi;
+            a = 1.0/m;
+            b = 1.0/n;
+        } else {
+            if (a > b) {
+                z += b*d;
+                piw[wdx++] = b; // Quantity of mass transported
+
+                a = a - b;
+                j = j + 1;
+                Y = nu[j].xi;
+                b = 1.0/n;
+            } else {
+                z += a*d;
+                piw[wdx++] = a; // Quantity of mass transported
+
+                a = a - a;
+                i = i + 1;
+                X = mu[i].xi;
+                a = 1.0/m;
+            }
+        }
+    }
+
+    // Copy back the solutions
+    memcpy(map,  pi,  idx*sizeof(int));
+    memcpy(mass, piw, wdx*sizeof(double));
+    map_size[0] = wdx;
+
+    free(pi);
+    free(piw);
+
+    return sqrt(z);
+}
+
+// Wasserstein-1D, p=1, with weights
+double OT1Dc_withplan(int m, int n, double* x, double* y, double* a, double* b, int* map, double* mass, int* map_size, bool sorting, int threads=8) {
+    std::vector<dbl_pair_idx_t> mu;
+    std::vector<dbl_pair_idx_t> nu;
+    mu.reserve(m);
+    nu.reserve(n);
+
+    for (int i = 0; i < m; i++)
+        mu.emplace_back(x[i], a[i], i);
+    for (int j = 0; j < n; j++)
+        nu.emplace_back(y[j], b[j], j);
+
+    if (sorting) {
+        if (threads == 1) {
+            pdqsort(mu.begin(), mu.end(), [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            });
+            pdqsort(nu.begin(), nu.end(), [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            });
+        } else {
+            parasort_mu(m, &mu[0], [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+
+            parasort_mu(n, &nu[0], [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+        }
+    }
+
+    int i = 0;
+    int j = 0;
+    double z = 0.0;
+    double d = 0;
+    double X = mu[i].xi;
+    double A = mu[i].ai;
+    double Y = nu[j].xi;
+    double B = nu[j].ai;
+        
+    int* pi = (int*)malloc(2*(n+m-1) * sizeof(int));
+    double* piw = (double*)calloc(n+m-1, sizeof(double));
+
+    int idx = 0;
+    int wdx = 0;
+
+    while (i < m && j < n) {
+        d = fabs(X - Y);
+        pi[idx] = mu[i].i;    // From
+        pi[idx+1] = nu[j].i;  // To
+        idx += 2;
+
+        if (A == B) {
+            z += A*d;
+            piw[wdx++] = A;   // Quantity of mass transported
+
+            i = i+1;
+            j = j+1;
+            X = mu[i].xi;
+            A = mu[i].ai;
+            Y = nu[j].xi;
+            B = nu[j].ai;
+        } else {
+            if (A > B) {
+                z += B*d;
+                piw[wdx++] = B; // Quantity of mass transported
+
+                A = A - B;
+                j = j + 1;
+                Y = nu[j].xi;
+                B = nu[j].ai;
+            } else {
+                z += A*d;
+                piw[wdx++] = A; // Quantity of mass transported
+
+                B = B - A;
+                i = i + 1;
+                X = mu[i].xi;
+                A = mu[i].ai;
+            }
+        }
+    }
+
+    // Copy back the solutions
+    memcpy(map,  pi,  idx*sizeof(int));
+    memcpy(mass, piw, wdx*sizeof(double));
+    map_size[0] = wdx;
+
+    free(pi);
+    free(piw);
+
+    return z;
+}
+
+
+// Wasserstein-1D, p=2, with weights
+double OT1Dd_withplan(int m, int n, double* x, double* y, double* a, double* b, int* map, double* mass, int* map_size, bool sorting, int threads=8) {
+    std::vector<dbl_pair_idx_t> mu;
+    std::vector<dbl_pair_idx_t> nu;
+    mu.reserve(m);
+    nu.reserve(n);
+
+    for (int i = 0; i < m; i++)
+        mu.emplace_back(x[i], a[i], i);
+    for (int j = 0; j < n; j++)
+        nu.emplace_back(y[j], b[j], j);
+
+    if (sorting) {
+        if (threads == 1) {
+            pdqsort(mu.begin(), mu.end(), [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            });
+            pdqsort(nu.begin(), nu.end(), [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            });
+        } else {
+            parasort_mu(m, &mu[0], [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+
+            parasort_mu(n, &nu[0], [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) {
+                return v.xi < w.xi;
+            }, threads);
+        }
+    }
+
+    int i = 0;
+    int j = 0;
+    double z = 0.0;
+    double d = 0;
+    double X = mu[i].xi;
+    double A = mu[i].ai;
+    double Y = nu[j].xi;
+    double B = nu[j].ai;
+        
+    int* pi = (int*)malloc(2*(n+m-1) * sizeof(int));
+    double* piw = (double*)calloc(n+m-1, sizeof(double));
+
+    int idx = 0;
+    int wdx = 0;
+
+    while (i < m && j < n) {
+        d = (X - Y)*(X - Y);
+        pi[idx] = mu[i].i;    // From
+        pi[idx+1] = nu[j].i;  // To
+        idx += 2;
+
+        if (A == B) {
+            z += A*d;
+            piw[wdx++] = A;   // Quantity of mass transported
+
+            i = i+1;
+            j = j+1;
+            X = mu[i].xi;
+            A = mu[i].ai;
+            Y = nu[j].xi;
+            B = nu[j].ai;
+        } else {
+            if (A > B) {
+                z += B*d;
+                piw[wdx++] = B; // Quantity of mass transported
+
+                A = A - B;
+                j = j + 1;
+                Y = nu[j].xi;
+                B = nu[j].ai;
+            } else {
+                z += A*d;
+                piw[wdx++] = A; // Quantity of mass transported
+
+                B = B - A;
+                i = i + 1;
+                X = mu[i].xi;
+                A = mu[i].ai;
+            }
+        }
+    }
+
+    // Copy back the solutions
+    memcpy(map,  pi,  idx*sizeof(int));
+    memcpy(mass, piw, wdx*sizeof(double));
+    map_size[0] = wdx;
+
+    free(pi);
+    free(piw);
 
     return sqrt(z);
 }

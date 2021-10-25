@@ -53,5 +53,28 @@ int main(int argc, char* argv[]) {
 
     fprintf(stdout, "Wasserstein distance of order 1: W1(x,y) = %.6f\n", z);
 
+    int n = 2;
+    int m = 3;
+
+    x = {1, 5};
+    y = {5, 10, 3};
+
+    std::vector<double> a = {2, 1};
+    std::vector<double> b = {1, 1, 1};
+
+    int *map = (int*)calloc(2*(n+m-1), sizeof(int));    
+    double *mass = (double*)calloc((n+m-1), sizeof(double));
+    int size_map = 0;
+
+    z = OT1Dd_withplan(n, m, &x[0], &y[0], &a[0], &b[0], &map[0], &mass[0], &size_map, true, 1);
+
+    for (int i = 0; i < size_map; i++) {
+        fprintf(stdout, "%d, (%f -> %f) = %f\n", i, x[map[2*i]], y[map[2*i+1]], mass[i]);
+        fflush(stdout);
+    }
+
+    free(map);
+    free(mass);
+
     return 0;
 }
