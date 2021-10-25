@@ -48,7 +48,7 @@ The parameters of the function are:
 * `p`: the order of the Wasserstein distance (p=1 or p=2)
 * `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm
-* `plan`: if equal to `True` , the function returns the optimal transportation plan (see example `interpolate.py`)
+* `plan`: if equal to `True` , the function returns the optimal transportation plan (see example [`interpolate.py`](https://github.com/stegua/ot1d/blob/main/python/interpolate.py))
 
 The first four parameters can be given in input as numpy arrays (*preferred*) or python lists.
 
