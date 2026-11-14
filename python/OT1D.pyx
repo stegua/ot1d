@@ -8,6 +8,8 @@
 #  @author stefano.gualandi@gmail.com (Stefano Gualandi)
 #
 
+import warnings
+
 import numpy as np
 
 from OT1D cimport OT1Da0 as OT1Da0
@@ -60,7 +62,9 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8, plan=False):
             raise ValueError("weights must be nonnegative")
         sa, sb = A.sum(), B.sum()
         if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
-            raise ValueError("A and B must have the same total mass ({} != {})".format(sa, sb))
+            warnings.warn("A and B have different total mass ({} != {}): only the smaller mass "
+                          "is transported, and the returned value and plan are partial".format(sa, sb),
+                          RuntimeWarning, stacklevel=2)
 
     if plan:
         # Compute and return an optimal transportation plan 

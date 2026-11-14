@@ -44,7 +44,7 @@ The parameters of the function are:
 * `x`: the support points of the first measure
 * `y`: the support points of the second measure
 * `A`: the (nonnegative) weights of the first measure. If equal to `None`, all the samples have the same mass.
-* `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the samples have the same mass. `A` and `B` must be given together and have the same total mass.
+* `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the samples have the same mass. `A` and `B` must be given together. If their total masses differ, a `RuntimeWarning` is issued and only the smaller total mass is transported (partial value and plan).
 * `p`: the order of the Wasserstein distance (p=1 or p=2)
 * `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm

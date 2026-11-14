@@ -23,8 +23,10 @@
  *
  * Conventions for all the functions below:
  *   - x (size m) and y (size n) are the supports of the two measures;
- *     a and b (when given) are their (nonnegative) weights, which must have
- *     the same total mass. Without weights, uniform weights 1/m and 1/n are used.
+ *     a and b (when given) are their (nonnegative) weights, which should have
+ *     the same total mass. If they do not, only the smaller total mass is
+ *     transported (partial plan and value; the Python wrapper warns about it).
+ *     Without weights, uniform weights 1/m and 1/n are used.
  *   - Inputs are never modified (sorting is done on internal copies).
  *   - If sorting == false, the inputs are assumed to be already sorted.
  *   - Functions "_withplan" write an optimal plan with at most m+n-1 entries:

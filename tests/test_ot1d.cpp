@@ -190,11 +190,30 @@ static void test_input_not_modified() {
     CHECK(x == x0 && y == y0 && a == a0 && b == b0, "inputs were modified");
 }
 
+static void test_unequal_mass() {
+    // Total masses 3 and 1.5: only 1.5 is transported (partial plan).
+    std::vector<double> x = {0, 1, 2}, y = {0.5, 3}, a = {1, 1, 1}, b = {0.5, 1};
+    std::vector<int> map(8);
+    std::vector<double> mass(4);
+    int sz = 0;
+    for (int p = 1; p <= 2; p++) {
+        double r = reference(x, a, y, b, p);
+        double z = p == 1
+            ? OT1Dc_withplan(3, 2, x.data(), y.data(), a.data(), b.data(), map.data(), mass.data(), &sz, true, 1)
+            : OT1Dd_withplan(3, 2, x.data(), y.data(), a.data(), b.data(), map.data(), mass.data(), &sz, true, 1);
+        CHECK(close(z, r), "unequal mass p=%d: %.12g vs ref %.12g", p, z, r);
+        double tot = 0;
+        for (int k = 0; k < sz; k++) tot += mass[k];
+        CHECK(close(tot, 1.5), "unequal mass p=%d: transported %.12g, expected 1.5", p, tot);
+    }
+}
+
 int main() {
     std::mt19937 gen(2021);
 
     test_readme_example();
     test_input_not_modified();
+    test_unequal_mass();
 
     const int sizes[] = {1, 2, 3, 5, 7, 10, 13, 64, 100, 257, 1000, 3001};
     const int threads[] = {1, 4};

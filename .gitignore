@@ -37,3 +37,6 @@ bin/test
 *.pyd
 *.exp
 *.whl
+
+# Build output
+bin/

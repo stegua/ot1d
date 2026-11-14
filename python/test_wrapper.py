@@ -7,6 +7,8 @@ reference (W1 and W2), checks transportation plans, and input validation.
 
 Run (after `make buildpython`):  cd python && python3 test_wrapper.py
 """
+import warnings
+
 import numpy as np
 from scipy.stats import wasserstein_distance
 
@@ -94,9 +96,22 @@ def test_validation():
     expect_error(p=3)
     expect_error(A=[0.5, 0.5])                       # B missing
     expect_error(A=[1.0], B=[0.5, 0.5])              # wrong length
-    expect_error(A=[0.5, 0.5], B=[1.0, 1.0])         # different total mass
     expect_error(A=[1.5, -0.5], B=[0.5, 0.5])        # negative weight
     expect_error(X=[], Y=[1.0])                      # empty
+
+
+def test_unequal_mass_partial_plan():
+    x, y = np.array([0.0, 1.0, 2.0]), np.array([0.5, 3.0])
+    a, b = np.array([1.0, 1.0, 1.0]), np.array([0.5, 1.0])   # 3 vs 1.5
+    for p in (1, 2):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
+            z, T, W = OT1D(x, y, a, b, p=p, plan=True)
+        assert any(issubclass(e.category, RuntimeWarning) for e in w)
+        assert np.isclose(z, reference(x, y, a, b, p))
+        assert np.isclose(W.sum(), 1.5)
+        assert np.all(np.bincount(T[:, 0], W, minlength=3) <= a + 1e-12)
+        assert np.allclose(np.bincount(T[:, 1], W, minlength=2), b)
 
 
 if __name__ == '__main__':
