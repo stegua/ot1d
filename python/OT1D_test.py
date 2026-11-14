@@ -32,7 +32,7 @@ def Test1(p, q, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, p=1, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
     print("\nTesting W2, samples of deltas, n=m")
     t0 = perf_counter()
@@ -41,7 +41,7 @@ def Test1(p, q, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, p=2, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
 
     print("\nTesting W1, samples with weights")
@@ -55,7 +55,7 @@ def Test1(p, q, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, a, b, p=1, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
     print("\nTesting W2, samples with weights")
     t0 = perf_counter()
@@ -64,7 +64,7 @@ def Test1(p, q, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, a, b, p=2, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
         
     
     
@@ -93,7 +93,7 @@ def Test2(p, q, a, b, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, p=1, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
     print("\nTesting W2, samples of deltas, n=m")
     t0 = perf_counter()
@@ -102,7 +102,7 @@ def Test2(p, q, a, b, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, p=2, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
 
     print("\nTesting W1, samples with weights")
@@ -116,7 +116,7 @@ def Test2(p, q, a, b, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, a, b, p=1, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
     print("\nTesting W2, samples with weights")
     t0 = perf_counter()
@@ -125,7 +125,7 @@ def Test2(p, q, a, b, threads=8):
 
     t0 = perf_counter()
     z = OT1D(p, q, a, b, p=2, sorting=sorting, threads=threads)
-    print("SG   : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
+    print("OT1D : z =", round(z, 8), "time =", round(perf_counter() - t0, 4))
 
 
 def Test3(N = 500000, samples=30, threads=8):
@@ -198,13 +198,13 @@ def Test3(N = 500000, samples=30, threads=8):
           "speedup =", round(Ls[1]/Ls[3], 1))
     print("POT  : average time =", round(Ls[2]/samples, 3),
           "speedup =",round(Ls[2]/Ls[3], 1))
-    print("SG   : average time =", round(Ls[3]/samples, 3),
+    print("OT1D : average time =", round(Ls[3]/samples, 3),
           "speedup =",round(Ls[3]/Ls[3], 1))
 
     print("\nTesting W2, samples of deltas, n=m")
     print("POT  : average time =", round(Ls[4]/samples, 3),
           "speedup =", round(Ls[4]/Ls[5], 1))
-    print("SG   : average time =", round(Ls[5]/samples, 3),
+    print("OT1D : average time =", round(Ls[5]/samples, 3),
           "speedup =", round(Ls[5]/Ls[5], 1))
 
     print("\nTesting W1, samples with weights")
@@ -212,13 +212,13 @@ def Test3(N = 500000, samples=30, threads=8):
           "speedup =", round(Ls[6]/Ls[8], 1))
     print("POT  : average time =", round(Ls[7]/samples, 3),
           "speedup =", round(Ls[7]/Ls[8], 1))
-    print("SG   : average time =", round(Ls[8]/samples, 3),
+    print("OT1D : average time =", round(Ls[8]/samples, 3),
           "speedup =", round(Ls[8]/Ls[8], 1))
 
     print("\nTesting W2, samples with weights")
     print("POT  : average time =", round(Ls[9]/samples, 3),
           "speedup =", round(Ls[9]/Ls[10], 1))
-    print("SG   : average time =", round(Ls[10]/samples, 3),
+    print("OT1D : average time =", round(Ls[10]/samples, 3),
           "speedup =", round(Ls[10]/Ls[10], 1))
 
 
@@ -299,13 +299,13 @@ def Test4(N = 500000, samples=30, threads=8):
           "speedup =", round(Ls[1]/Ls[3], 1))
     print("POT  : average time =", round(Ls[2]/samples, 3),
           "speedup =",round(Ls[2]/Ls[3], 1))
-    print("SG   : average time =", round(Ls[3]/samples, 3),
+    print("OT1D : average time =", round(Ls[3]/samples, 3),
           "speedup =",round(Ls[3]/Ls[3], 1))
 
     print("\nTesting W2, samples of deltas, n=m")
     print("POT  : average time =", round(Ls[4]/samples, 3),
           "speedup =", round(Ls[4]/Ls[5], 1))
-    print("SG   : average time =", round(Ls[5]/samples, 3),
+    print("OT1D : average time =", round(Ls[5]/samples, 3),
           "speedup =", round(Ls[5]/Ls[5], 1))
 
     print("\nTesting W1, samples with weights")
@@ -313,13 +313,13 @@ def Test4(N = 500000, samples=30, threads=8):
           "speedup =", round(Ls[6]/Ls[8], 1))
     print("POT  : average time =", round(Ls[7]/samples, 3),
           "speedup =", round(Ls[7]/Ls[8], 1))
-    print("SG   : average time =", round(Ls[8]/samples, 3),
+    print("OT1D : average time =", round(Ls[8]/samples, 3),
           "speedup =", round(Ls[8]/Ls[8], 1))
 
     print("\nTesting W2, samples with weights")
     print("POT  : average time =", round(Ls[9]/samples, 3),
           "speedup =", round(Ls[9]/Ls[10], 1))
-    print("SG   : average time =", round(Ls[10]/samples, 3),
+    print("OT1D : average time =", round(Ls[10]/samples, 3),
           "speedup =", round(Ls[10]/Ls[10], 1))
 
 def Test5(threads=8, seed=13):
@@ -359,7 +359,7 @@ def Test5(threads=8, seed=13):
 
                 if th == threads:
                     print("m = {:>7}, n = {:>7}, weights = {:<5} | POT: z = {:.8f} time = {:.4f} | "
-                          "SG: z = {:.8f} time = {:.4f}".format(m, n, str(weighted), ref, t_pot, z, t_sg))
+                          "OT1D: z = {:.8f} time = {:.4f}".format(m, n, str(weighted), ref, t_pot, z, t_sg))
 
             # Sorted input (sorting=False) and transportation plan
             if m <= 100000:
