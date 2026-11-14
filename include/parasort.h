@@ -150,7 +150,7 @@ template <typename T> void parasort(size_t sz, T* list, unsigned np = 2, unsigne
     }
     for (auto&& thread : threads) thread.join();
 // Step 6: Copy the temporary container for the sorted array into the input array.    
-    std::memcpy(list, &sorted[0], sz * sizeof(T) );
+    std::copy(sorted.begin(), sorted.end(), list);
 }
 
 
@@ -198,6 +198,6 @@ template <typename T, typename Lambda> void parasort_mu(size_t sz, T* list, Lamb
     }
     for (auto&& thread : threads) thread.join();
 // Step 6: Copy the temporary container for the sorted array into the input array.    
-    std::memcpy(list, &sorted[0], sz * sizeof(T) );
+    std::copy(sorted.begin(), sorted.end(), list);
 }
 

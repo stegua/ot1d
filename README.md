@@ -36,15 +36,15 @@ The simplest way to test this library is to run the following notebook on Colab:
 The main function of the **OT1D** library is the following:
 
 ```python
-z = OT1D(x, y, mu=None, nu=None, p=2, sorting=True, threads=8, plan=False)
+z = OT1D(x, y, A=None, B=None, p=1, sorting=True, threads=8, plan=False)
 ```
 
 The parameters of the function are:
 
 * `x`: the support points of the first measure
 * `y`: the support points of the second measure
-* `mu`: the weights of the first measure. If equal to `None`, all the samples have the same mass.
-* `nu`: the weights of the second measure. If equal to `None`, all the samples have the same mass.
+* `A`: the (nonnegative) weights of the first measure. If equal to `None`, all the samples have the same mass.
+* `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the samples have the same mass. `A` and `B` must be given together and have the same total mass.
 * `p`: the order of the Wasserstein distance (p=1 or p=2)
 * `sorting`: if equal to `True`, the function sorts the support points given in input
 * `threads`: number of threads to use by the parallel sorting algorithm
@@ -55,13 +55,13 @@ The first four parameters can be given in input as numpy arrays (*preferred*) or
 ### Sorting at the speed of light
 In addition, we expose the following in-place parallel sorting function:
 ```python
-parasort(x, mu=None, threads=8)
+parasort(x, A=None, threads=8)
 ```
 
 The parameters of the function are:
 
 * `x`: the support points of a given measure
-* `mu`: the weights of the given measure. If equal to`None`, only the support points are sorted
+* `A`: the weights of the given measure. If equal to `None`, only the support points are sorted
 * `threads`: number of threads to use by the parallel sorting algorithm
 
 The first two parameters can be given in input as numpy arrays (*preferred*) or python lists.

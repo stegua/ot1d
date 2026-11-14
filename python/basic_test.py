@@ -21,20 +21,20 @@ b = [1/N for j in np.random.uniform(0, 1, N)]
 
 z, T, W = OT1D(x, y, p=1, sorting=True, threads=16, plan=True)
 
-print('Wasserstein distance of order 2, W2(x,y) =', z)
+print('Wasserstein distance of order 1, W1(x,y) =', z)
 
 for e in range(len(W)):
 	i, j = T[e,0], T[e,1]
-	print('{} -> {} = {:.4f} | {:.4f} {:.4f}'.format(i, j, W[i], x[i], y[j]))
+	print('{} -> {} = {:.4f} | {:.4f} {:.4f}'.format(i, j, W[e], x[i], y[j]))
 
 
 z, T, W = OT1D(x, y, a, b, p=1, sorting=True, threads=16, plan=True)
 
-print('Wasserstein distance of order 2, W2(x,y) =', z)
+print('Wasserstein distance of order 1, W1(x,y) =', z)
 
 for e in range(len(W)):
 	i, j = T[e,0], T[e,1]
-	print('{} -> {} = {:.4f} | {:.4f} {:.4f}'.format(i, j, W[i], x[i], y[j]))
+	print('{} -> {} = {:.4f} | {:.4f} {:.4f}'.format(i, j, W[e], x[i], y[j]))
 
 # Output:
-# Wasserstein distance of order 2, W2(x,y) = 1.0002549459050794
+# Wasserstein distance of order 1, W1(x,y) = 1.0002549459050794

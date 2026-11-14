@@ -28,11 +28,21 @@ laptop: ${OUT_DIR} ${SRC}/TestCLI.cpp
 	${LINKER} -o ${BIN}/test ${LIB}/TestCLI.o
 	./bin/test
 	
+# Correctness tests (compare against a reference solver, check plans)
+test: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp
+	g++ -O2 -ffast-math -march=native -DNDEBUG -Wall -std=c++11 -pthread tests/test_ot1d.cpp -o ${BIN}/test_ot1d -I${INCLUDE}
+	./bin/test_ot1d
+
+# Same tests with AddressSanitizer and UndefinedBehaviorSanitizer
+sanitize: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp
+	g++ -O1 -g -Wall -Wextra -std=c++11 -pthread -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_ot1d.cpp -o ${BIN}/test_ot1d_asan -I${INCLUDE}
+	./bin/test_ot1d_asan
+
 # Build and Test Python wrapper
 buildpython:
-	cp ${INCLUDE}/OT1D.hpp ./python/
+	cp ${INCLUDE}/OT1D.hpp ${INCLUDE}/parasort.h ${INCLUDE}/pdqsort.h ./python/
 	cp README.md ./python/
-	cd python && python3 setup.py build_ext --inplace && python3 basic_test.py
+	cd python && python3 setup.py build_ext --inplace && python3 basic_test.py && python3 test_wrapper.py
 
 # Run longer test:
 longtest:

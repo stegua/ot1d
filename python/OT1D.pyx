@@ -43,6 +43,25 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8, plan=False):
     if B is not None and (type(B) == list or not B.flags['C_CONTIGUOUS'] or B.dtype != float):
         B = np.ascontiguousarray(B, dtype=float) 
 
+    if p not in (1, 2):
+        raise ValueError("p must be 1 or 2, got {}".format(p))
+    if (A is None) != (B is None):
+        raise ValueError("weights A and B must be given both or neither")
+    if X.ndim != 1 or Y.ndim != 1:
+        raise ValueError("X and Y must be one-dimensional")
+    if len(X) == 0 or len(Y) == 0:
+        raise ValueError("X and Y must be non-empty")
+    if A is not None:
+        if A.ndim != 1 or len(A) != len(X):
+            raise ValueError("A must be one-dimensional with the same length as X")
+        if B.ndim != 1 or len(B) != len(Y):
+            raise ValueError("B must be one-dimensional with the same length as Y")
+        if np.any(A < 0) or np.any(B < 0):
+            raise ValueError("weights must be nonnegative")
+        sa, sb = A.sum(), B.sum()
+        if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
+            raise ValueError("A and B must have the same total mass ({} != {})".format(sa, sb))
+
     if plan:
         # Compute and return an optimal transportation plan 
         m = len(X)
