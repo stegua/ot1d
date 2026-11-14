@@ -14,7 +14,7 @@ import platform
 
 CC_ARGS = [
     '-Wno-unused-function', '-std=c++11', '-O2', '-ffast-math',
-    '-DNDEBUG', '-fno-wrapv', '-march=native'
+    '-DNDEBUG', '-fno-wrapv'
 ]
 
 LD_ARGS = ['-O2', '-lm', '-pthread', '-fno-wrapv']
