@@ -322,6 +322,61 @@ def Test4(N = 500000, samples=30, threads=8):
     print("SG   : average time =", round(Ls[10]/samples, 3),
           "speedup =", round(Ls[10]/Ls[10], 1))
 
+def Test5(threads=8, seed=13):
+    print('\n--------------- TEST 5: W2 against POT (correctness) --------------------')
+
+    print('Comparing OT1D with sqrt(POT), since POT returns W2^2\n')
+
+    rng = np.random.default_rng(seed)
+    cases = [(1, 1), (2, 3), (10, 10), (17, 5), (1000, 1000), (1000, 777),
+             (100000, 100000), (100000, 65537), (5000000, 5000000)]
+    worst = 0.0
+    for m, n in cases:
+        x = rng.normal(0, 1, m)
+        y = rng.normal(3, 2, n)
+        a = rng.uniform(0.1, 1, m)
+        b = rng.uniform(0.1, 1, n)
+        a, b = a/np.sum(a), b/np.sum(b)
+
+        for weighted in (False, True):
+            A, B = (a, b) if weighted else (None, None)
+
+            t0 = perf_counter()
+            if weighted:
+                ref = np.sqrt(ot.lp.wasserstein_1d(x, y, a, b, p=2))
+            else:
+                ref = np.sqrt(ot.lp.wasserstein_1d(x, y, p=2))
+            t_pot = perf_counter() - t0
+
+            for th in sorted({1, threads}):
+                t0 = perf_counter()
+                z = OT1D(x, y, A, B, p=2, sorting=True, threads=th)
+                t_sg = perf_counter() - t0
+
+                err = abs(z - ref)/max(1.0, abs(ref))
+                worst = max(worst, err)
+                assert err < 1e-8, (m, n, weighted, th, z, ref)
+
+                if th == threads:
+                    print("m = {:>7}, n = {:>7}, weights = {:<5} | POT: z = {:.8f} time = {:.4f} | "
+                          "SG: z = {:.8f} time = {:.4f}".format(m, n, str(weighted), ref, t_pot, z, t_sg))
+
+            # Sorted input (sorting=False) and transportation plan
+            if m <= 100000:
+                ix, iy = np.argsort(x), np.argsort(y)
+                xs, ys = x[ix], y[iy]
+                As, Bs = (a[ix], b[iy]) if weighted else (None, None)
+                z = OT1D(xs, ys, As, Bs, p=2, sorting=False, threads=threads)
+                assert abs(z - ref)/max(1.0, abs(ref)) < 1e-8, ('sorted', m, n, weighted, z, ref)
+
+                z, T, W = OT1D(x, y, A, B, p=2, sorting=True, threads=threads, plan=True)
+                assert abs(z - ref)/max(1.0, abs(ref)) < 1e-8, ('plan', m, n, weighted, z, ref)
+                cost = np.sqrt(np.sum(W * (x[T[:, 0]] - y[T[:, 1]])**2))
+                assert abs(cost - ref)/max(1.0, abs(ref)) < 1e-8, ('plan cost', m, n, weighted, cost, ref)
+
+    print('\nAll W2 values match POT: max relative error =', '{:.2e}'.format(worst))
+
+
 # -----------------------------------------------
 #   MAIN function
 # -----------------------------------------------
@@ -351,3 +406,4 @@ if __name__ == "__main__":
 
     Test3(threads=8)
     Test4(threads=8)
+    Test5(threads=8)
