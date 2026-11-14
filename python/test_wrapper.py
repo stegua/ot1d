@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 from scipy.stats import wasserstein_distance
 
-from OT1D import OT1D
+from OT1D import OT1D, parasort
 
 
 def reference(x, y, a, b, p):
@@ -111,6 +111,39 @@ def test_sorting_flag():
     x, y = np.array([3.0, 0.0, 1.0]), np.array([0.0, 3.0])   # m != n
     assert np.isclose(OT1D(x, y, sorting=False), OT1D(x, y, sorting=False, plan=True)[0])
     assert not np.isclose(OT1D(x, y, sorting=False), OT1D(x, y, sorting=True))
+
+
+def test_input_types():
+    # Lists, tuples and integer arrays are converted
+    ref = OT1D(np.array([3.0, 1.0, 2.0]), np.array([0.0, 5.0]))
+    assert np.isclose(OT1D([3, 1, 2], (0, 5)), ref)
+    assert np.isclose(OT1D(np.array([3, 1, 2]), np.array([0, 5])), ref)
+
+
+def test_parasort():
+    rng = np.random.default_rng(3)
+    for n in (0, 1, 5, 1000, 50000):
+        x = rng.normal(size=n)
+        a = x * 10  # weights follow their points
+        xs = np.sort(x)
+        y = x.copy()
+        parasort(y, threads=4)
+        assert np.array_equal(y, xs)
+        parasort(x, a, threads=4)
+        assert np.array_equal(x, xs) and np.allclose(a, xs * 10)
+    # In-place sorting needs float64 arrays: anything else raises a clear error
+    for bad in ([3.0, 1.0], np.array([3, 1]), np.array([[1.0, 2.0]]), np.array([3.0, 1.0, 2.0])[::2]):
+        try:
+            parasort(bad)
+        except TypeError:
+            continue
+        raise AssertionError('expected TypeError for {!r}'.format(bad))
+    try:
+        parasort(np.array([1.0, 2.0]), np.array([1.0]))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('expected ValueError for different lengths')
 
 
 def test_unequal_mass_partial_plan():

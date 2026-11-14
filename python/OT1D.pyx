@@ -33,17 +33,14 @@ from OT1D cimport _parasort_mu as _parasort_mu
 
 # One function for optimal transport
 def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8, plan=False):
-    if type(X) == list or not X.flags['C_CONTIGUOUS'] or X.dtype != float:
-        X = np.ascontiguousarray(X, dtype=float) 
-
-    if type(Y) == list or not Y.flags['C_CONTIGUOUS'] or Y.dtype != float:
-        Y = np.ascontiguousarray(Y, dtype=float) 
-
-    if A is not None and (type(A) == list or not A.flags['C_CONTIGUOUS'] or A.dtype != float):
-        A = np.ascontiguousarray(A, dtype=float) 
-
-    if B is not None and (type(B) == list or not B.flags['C_CONTIGUOUS'] or B.dtype != float):
-        B = np.ascontiguousarray(B, dtype=float) 
+    # Accept lists, tuples and arrays of any numeric type (no copy if already
+    # a C-contiguous array of float64)
+    X = np.ascontiguousarray(X, dtype=float)
+    Y = np.ascontiguousarray(Y, dtype=float)
+    if A is not None:
+        A = np.ascontiguousarray(A, dtype=float)
+    if B is not None:
+        B = np.ascontiguousarray(B, dtype=float)
 
     if p not in (1, 2):
         raise ValueError("p must be 1 or 2, got {}".format(p))
@@ -110,19 +107,31 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8, plan=False):
                 return OT_1Dd(X, Y, A, B, sorting, threads)
 
 
-# Support for fast sorting
+def _check_inplace(V, name):
+    if not (isinstance(V, np.ndarray) and V.dtype == np.float64 and V.ndim == 1
+            and V.flags['C_CONTIGUOUS'] and V.flags['WRITEABLE']):
+        raise TypeError("parasort sorts in place: {} must be a writeable, one-dimensional, "
+                        "C-contiguous numpy array of float64 (for instance, "
+                        "np.ascontiguousarray({}, dtype=float))".format(name, name))
+
+
+# Support for fast sorting (in place)
 def parasort(X, A=None, threads=8):
-    if not X.flags['C_CONTIGUOUS'] or type(X) == list or X.dtype != float:
-        X = np.ascontiguousarray(X, dtype=float) 
+    _check_inplace(X, 'X')
+    if A is not None:
+        _check_inplace(A, 'A')
+        if len(A) != len(X):
+            raise ValueError("X and A must have the same length")
+    if len(X) == 0:
+        return
+
     cdef double[::1] Xmv = X
     if A is None:
-        return _parasort(len(X), &Xmv[0], threads)
+        _parasort(len(X), &Xmv[0], threads)
+        return
 
-    if not A.flags['C_CONTIGUOUS'] or type(A) == list or A.dtype != float:
-        A = np.ascontiguousarray(A, dtype=float) 
-
-    cdef double[::1] Amv = A    
-    return _parasort_mu(len(X), &Xmv[0], &Amv[0], threads)
+    cdef double[::1] Amv = A
+    _parasort_mu(len(X), &Xmv[0], &Amv[0], threads)
 
 
 #--------------------------------------------------------------
