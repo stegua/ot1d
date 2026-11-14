@@ -100,6 +100,19 @@ def test_validation():
     expect_error(X=[], Y=[1.0])                      # empty
 
 
+def test_sorting_flag():
+    # With sorting=False the inputs are used in the given order: 3->0, 0->3.
+    x, y = np.array([3.0, 0.0]), np.array([0.0, 3.0])
+    a = b = np.array([0.5, 0.5])
+    for p, expected in ((1, 3.0), (2, 3.0)):
+        assert np.isclose(OT1D(x, y, p=p, sorting=False), expected)
+        assert np.isclose(OT1D(x, y, a, b, p=p, sorting=False), expected)
+        assert np.isclose(OT1D(x, y, p=p, sorting=True), 0.0)
+    x, y = np.array([3.0, 0.0, 1.0]), np.array([0.0, 3.0])   # m != n
+    assert np.isclose(OT1D(x, y, sorting=False), OT1D(x, y, sorting=False, plan=True)[0])
+    assert not np.isclose(OT1D(x, y, sorting=False), OT1D(x, y, sorting=True))
+
+
 def test_unequal_mass_partial_plan():
     x, y = np.array([0.0, 1.0, 2.0]), np.array([0.5, 3.0])
     a, b = np.array([1.0, 1.0, 1.0]), np.array([0.5, 1.0])   # 3 vs 1.5

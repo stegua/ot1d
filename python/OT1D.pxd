@@ -6,6 +6,10 @@
 #  @author stefano.gualandi@gmail.com (Stefano Gualandi)
 #
 
+# C++ bool: without this import, Cython treats `bool` as the Python bool
+# object and passes a non-null PyObject*, so `sorting` was always true.
+from libcpp cimport bool
+
 cdef extern from "OT1D.hpp":
 	cdef double OT1Da0(int, double*, double*, bool, int)
 	cdef double OT1Db0(int, double*, double*, bool, int)
