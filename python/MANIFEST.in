@@ -4,3 +4,5 @@ include *.h
 include OT1D_test.py
 include basic_test.py
 include OT1D.hpp
+include pyproject.toml
+include OT1D.pyx

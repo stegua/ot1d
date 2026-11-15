@@ -40,3 +40,8 @@ bin/test
 
 # Build output
 bin/
+
+# Python packaging
+python/dist/
+python/build/
+python/*.egg-info/
