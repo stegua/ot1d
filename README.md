@@ -223,5 +223,13 @@ All W2 values match POT: max relative error = 1.42e-11
 
 Please contact us by email if you encounter any issues.
 
+### Use of AI tools
+The algorithms in this library were designed and originally implemented by hand by the author.
+For release 0.4.0, the author used [Claude Code](https://claude.com/claude-code) (the Anthropic CLI) with the Opus 5.5 model to debug and test the library.
+In that process, Claude found and fixed several bugs, restructured parts of the C++ header [OT1D.hpp](https://github.com/stegua/ot1d/blob/main/include/OT1D.hpp) while fixing them, and wrote the test suites.
+Every change was reviewed and committed by the author, who remains solely responsible for the code.
+
+#code-written-by-human-hands
+
 ### Author and maintainer
 Stefano Gualandi, stefano.gualandi@gmail.com.
