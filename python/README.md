@@ -39,7 +39,7 @@ The simplest way to test this library is to run the following notebook on Colab:
 The main function of the **OT1D** library is the following:
 
 ```python
-z = OT1D(x, y, A=None, B=None, p=1, sorting=True, threads=8, plan=False)
+z = OT1D(x, y, A=None, B=None, p=1, sorting=True, threads=1, plan=False)
 ```
 
 The parameters of the function are:
@@ -50,15 +50,17 @@ The parameters of the function are:
 * `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the samples have the same mass. `A` and `B` must be given together. If their total masses differ, a `RuntimeWarning` is issued and only the smaller total mass is transported (partial value and plan).
 * `p`: the order of the Wasserstein distance (`p=1` or `p=2`).
 * `sorting`: if equal to `True`, the function sorts the support points given as input; if equal to `False`, the input must already be sorted.
-* `threads`: the number of threads used by the parallel sorting algorithm.
+* `threads`: the number of threads used by the parallel sorting algorithm (default `1`). Threads only speed up the sorting phase, so they help only on large inputs with `sorting=True`.
 * `plan`: if equal to `True`, the function also returns an optimal transportation plan, as a triple `z, T, W`: the row `T[k] = (i, j)` means that the mass `W[k]` moves from `x[i]` to `y[j]` (see the example [`interpolate.py`](https://github.com/stegua/ot1d/blob/main/python/interpolate.py)).
 
 The first four parameters can be given as numpy arrays (*preferred*) or Python lists.
 
+All the functions release the GIL while running the C++ code, so several calls can run in parallel from different Python threads (for instance, with a `ThreadPoolExecutor`); in this case, keep `threads=1`.
+
 ### Sorting at the speed of light
 In addition, we expose the following in-place parallel sorting function:
 ```python
-parasort(x, A=None, threads=8)
+parasort(x, A=None, threads=1)
 ```
 
 The parameters of the function are:
@@ -79,12 +81,15 @@ The key step of the algorithm is sorting the two arrays of support points *x* an
 We sort the arrays by using a customized parallel sorting algorithm implemented in C++, which combines the very fast [pdqsort](https://github.com/orlp/pdqsort)
 with [parasort](https://github.com/baserinia/parallel-sort). See the linked webpages for the licenses of these two libraries.
 
+On x86-64 CPUs, the Python wrapper sorts with the vectorized quicksort of [x86-simd-sort](https://github.com/intel/x86-simd-sort) (BSD 3-Clause License), the same library used by `np.sort`. The best instruction set supported by the CPU is selected at runtime: AVX-512 (for instance, Intel Skylake-X and later, AMD Zen 4 and later), AVX2 (almost every x86-64 CPU since 2013), or none, falling back to pdqsort and parasort. With AVX-512 a single thread sorts 3 to 8 times faster than pdqsort, and with AVX2 about 2.5 times faster, so `threads` matters only for weighted measures (or with a plan) of at least one million points. You can check which one is used with `OT1D.simd()`, and select another one with `OT1D.set_simd('avx2')` (or `'avx512'`, `'none'`), for instance to compare timings. To build without them, set the environment variable `OT1D_NO_SIMD=1` before installing.
+
+In C++, the header `OT1D.hpp` uses pdqsort and parasort by default. To use the SIMD sorting, compile `include/ot1d_avx2.cpp` and/or `include/ot1d_avx512.cpp` (C++17) with the corresponding flags, compile your code with `-DOT1D_USE_AVX2` and/or `-DOT1D_USE_AVX512`, and link these object files last, AVX2 first (see the target `test-simd` in the `Makefile`).
 
 ### Prerequisites for compilation
 
 To compile the source code and the Python wrapper, you only need:
 
-* A C++ compiler compliant with the `C++11` standard.
+* A C++ compiler compliant with the `C++11` standard (`C++17` for the optional SIMD sorting).
 * [cython](https://cython.org/)
 * [numpy](https://numpy.org/)
 

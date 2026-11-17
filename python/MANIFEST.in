@@ -4,5 +4,9 @@ include *.h
 include OT1D_test.py
 include basic_test.py
 include OT1D.hpp
+include ot1d_avx512.cpp
+include ot1d_avx2.cpp
+include ot1d_simdsort.inc
+recursive-include x86-simd-sort *
 include pyproject.toml
 include OT1D.pyx

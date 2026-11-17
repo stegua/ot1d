@@ -42,17 +42,23 @@
 // Sort an array using std::sort
 // sz: length of array
 // list: array pointer
+// STEGUA: hook to sort a bucket with a faster (e.g. SIMD) algorithm, used if it
+// returns true. The default does nothing: OT1D.hpp specializes it for its types.
+template <typename T> inline bool _simd_sort (size_t, T*) { return false; }
+
 template <typename T> static void _sort (size_t sz, T* list)
 {
     // STEGUA: replaced std::sort with pdqsort.h
-    pdqsort(list, list+sz);
+    if (!_simd_sort(sz, list))
+        pdqsort(list, list+sz);
 }
 
 // STEGUA: Support for pair of doubles
 template <typename T, typename Lambda> static void _sort_mu (size_t sz, T* list, Lambda&& Cmp)
 {
     // STEGUA: replaced std::sort with pdqsort.h
-    pdqsort(list, list+sz, Cmp);
+    if (!_simd_sort(sz, list))
+        pdqsort(list, list+sz, Cmp);
 }
 
 //------------------------------------------------------------------------------

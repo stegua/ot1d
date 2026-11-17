@@ -1,0 +1,2 @@
+x86-simd-sort v7.0 (commit 8a72081), https://github.com/intel/x86-simd-sort
+Only the header-only sources in src/ are vendored here (BSD 3-Clause License).

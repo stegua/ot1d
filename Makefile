@@ -32,15 +32,37 @@ laptop: ${OUT_DIR} ${SRC}/TestCLI.cpp
 test: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp
 	g++ -O2 -ffast-math -march=native -DNDEBUG -Wall -std=c++11 -pthread tests/test_ot1d.cpp -o ${BIN}/test_ot1d -I${INCLUDE}
 	./bin/test_ot1d
+	${MAKE} test-simd
+
+# Same tests with the SIMD sorting enabled (x86-simd-sort, AVX2 and AVX-512).
+# Only ot1d_avx2.cpp and ot1d_avx512.cpp are compiled with SIMD flags, and they
+# are linked last, AVX2 before AVX-512; the tests of a level are skipped at
+# runtime if the CPU does not support it.
+AVX512_FLAGS = -mavx512f -mavx512dq -mavx512vl -mavx512bw -mavx512cd
+AVX2_FLAGS   = -mavx2
+SIMD_DEFS    = -DOT1D_USE_AVX2 -DOT1D_USE_AVX512
+
+test-simd: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp ${INCLUDE}/ot1d_simdsort.inc ${INCLUDE}/ot1d_avx2.cpp ${INCLUDE}/ot1d_avx512.cpp
+	g++ -O2 -DNDEBUG -Wall -std=c++17 ${AVX2_FLAGS} -c ${INCLUDE}/ot1d_avx2.cpp -o ${LIB}/ot1d_avx2.o -I${INCLUDE}
+	g++ -O2 -DNDEBUG -Wall -std=c++17 ${AVX512_FLAGS} -c ${INCLUDE}/ot1d_avx512.cpp -o ${LIB}/ot1d_avx512.o -I${INCLUDE}
+	g++ -O2 -ffast-math -DNDEBUG -Wall -std=c++11 -pthread ${SIMD_DEFS} -c tests/test_ot1d.cpp -o ${LIB}/test_ot1d.o -I${INCLUDE}
+	g++ -pthread ${LIB}/test_ot1d.o ${LIB}/ot1d_avx2.o ${LIB}/ot1d_avx512.o -o ${BIN}/test_ot1d_simd
+	./bin/test_ot1d_simd
 
 # Same tests with AddressSanitizer and UndefinedBehaviorSanitizer
 sanitize: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp
 	g++ -O1 -g -Wall -Wextra -std=c++11 -pthread -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_ot1d.cpp -o ${BIN}/test_ot1d_asan -I${INCLUDE}
 	./bin/test_ot1d_asan
+	g++ -O1 -g -Wall -std=c++17 ${AVX2_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer -c ${INCLUDE}/ot1d_avx2.cpp -o ${LIB}/ot1d_avx2_asan.o -I${INCLUDE}
+	g++ -O1 -g -Wall -std=c++17 ${AVX512_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer -c ${INCLUDE}/ot1d_avx512.cpp -o ${LIB}/ot1d_avx512_asan.o -I${INCLUDE}
+	g++ -O1 -g -Wall -Wextra -std=c++11 -pthread ${SIMD_DEFS} -fsanitize=address,undefined -fno-omit-frame-pointer -c tests/test_ot1d.cpp -o ${LIB}/test_ot1d_asan.o -I${INCLUDE}
+	g++ -pthread -fsanitize=address,undefined ${LIB}/test_ot1d_asan.o ${LIB}/ot1d_avx2_asan.o ${LIB}/ot1d_avx512_asan.o -o ${BIN}/test_ot1d_simd_asan
+	./bin/test_ot1d_simd_asan
 
 # Build and Test Python wrapper
 buildpython:
-	cp ${INCLUDE}/OT1D.hpp ${INCLUDE}/parasort.h ${INCLUDE}/pdqsort.h ./python/
+	cp ${INCLUDE}/OT1D.hpp ${INCLUDE}/parasort.h ${INCLUDE}/pdqsort.h ${INCLUDE}/ot1d_simdsort.inc ${INCLUDE}/ot1d_avx2.cpp ${INCLUDE}/ot1d_avx512.cpp ./python/
+	rm -rf ./python/x86-simd-sort && cp -r ${INCLUDE}/x86-simd-sort ./python/
 	cp README.md ./python/
 	cd python && python3 setup.py build_ext --inplace && python3 basic_test.py && python3 test_wrapper.py
 

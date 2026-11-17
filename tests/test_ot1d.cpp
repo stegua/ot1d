@@ -208,12 +208,79 @@ static void test_unequal_mass() {
     }
 }
 
+#ifdef OT1D_USE_SIMD
+// The SIMD sorting (alone, and inside the buckets of parasort for large inputs)
+// must give the same results as the generic pdqsort/parasort path.
+static void test_simd_level(int level) {
+    if (ot1d_simd::set_level(level) != level) {
+        printf("SIMD level %d not available: skipping its tests\n", level);
+        return;
+    }
+    printf("Testing SIMD level %d\n", level);
+    std::mt19937 gen(7);
+    std::uniform_real_distribution<> U(0.0, 1.0);
+    std::uniform_int_distribution<> D(0, 999);  // many ties
+    const int sizes[] = {1, 17, 5000, 1200000};
+    for (int n : sizes) {
+        int m = n + n / 3;
+        std::vector<double> X(m), Y(n), A(m), B(n);
+        for (int i = 0; i < m; i++) { X[i] = (i % 2) ? U(gen) : D(gen) / 1000.0; A[i] = U(gen) + 0.1; }
+        for (int j = 0; j < n; j++) { Y[j] = (j % 2) ? U(gen) : D(gen) / 1000.0; B[j] = U(gen) + 0.1; }
+        double sa = 0, sb = 0;
+        for (double v : A) sa += v;
+        for (double v : B) sb += v;
+        for (double& v : B) v *= sa / sb;
+        std::vector<int> map(2 * (m + n));
+        std::vector<double> mass(m + n);
+        int sz = 0;
+        for (int t : {1, 8}) {
+            double z[2][8];
+            for (int avx = 0; avx < 2; avx++) {
+                ot1d_simd::set_level(avx == 1 ? level : ot1d_simd::NONE);
+                z[avx][0] = OT1Da(m, n, X.data(), Y.data(), true, t);
+                z[avx][1] = OT1Db(m, n, X.data(), Y.data(), true, t);
+                z[avx][2] = OT1Dc(m, n, X.data(), Y.data(), A.data(), B.data(), true, t);
+                z[avx][3] = OT1Dd(m, n, X.data(), Y.data(), A.data(), B.data(), true, t);
+                z[avx][4] = OT1Da_withplan(m, n, X.data(), Y.data(), map.data(), mass.data(), &sz, true, t);
+                z[avx][5] = OT1Db0_withplan(n, X.data(), Y.data(), map.data(), mass.data(), &sz, true, t);
+                z[avx][6] = OT1Dc_withplan(m, n, X.data(), Y.data(), A.data(), B.data(), map.data(), mass.data(), &sz, true, t);
+                z[avx][7] = OT1Dd_withplan(m, n, X.data(), Y.data(), A.data(), B.data(), map.data(), mass.data(), &sz, true, t);
+            }
+            for (int k = 0; k < 8; k++)
+                CHECK(close(z[0][k], z[1][k], 1e-8), "simd=%d n=%d t=%d case %d: %.15g != %.15g",
+                      level, n, t, k, z[1][k], z[0][k]);
+
+            // In-place sorting utilities
+            std::vector<double> x1(X), x2(X), a1(A), a2(A);
+            ot1d_simd::set_level(ot1d_simd::NONE);
+            _parasort(m, x1.data(), t);
+            _parasort_mu(m, a1.data(), x1.data(), t);  // sort A, carrying (sorted) X along
+            ot1d_simd::set_level(level);
+            _parasort(m, x2.data(), t);
+            _parasort_mu(m, a2.data(), x2.data(), t);
+            CHECK(a1 == a2, "simd=%d _parasort_mu keys n=%d t=%d", level, m, t);
+            // With ties in A, the order of the values may differ: compare the pairs
+            std::vector<std::pair<double, double>> p1, p2;
+            for (int i = 0; i < m; i++) { p1.emplace_back(a1[i], x1[i]); p2.emplace_back(a2[i], x2[i]); }
+            std::sort(p1.begin(), p1.end());
+            std::sort(p2.begin(), p2.end());
+            CHECK(p1 == p2, "simd=%d _parasort_mu pairs n=%d t=%d", level, m, t);
+        }
+    }
+    ot1d_simd::set_level(ot1d_simd::cpu_level());
+}
+#endif
+
 int main() {
     std::mt19937 gen(2021);
 
     test_readme_example();
     test_input_not_modified();
     test_unequal_mass();
+#ifdef OT1D_USE_SIMD
+    test_simd_level(ot1d_simd::AVX2);
+    test_simd_level(ot1d_simd::AVX512);
+#endif
 
     const int sizes[] = {1, 2, 3, 5, 7, 10, 13, 64, 100, 257, 1000, 3001};
     const int threads[] = {1, 4};

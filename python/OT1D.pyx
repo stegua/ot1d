@@ -10,6 +10,8 @@
 
 import warnings
 
+from libcpp cimport bool
+
 import numpy as np
 
 from OT1D cimport OT1Da0 as OT1Da0
@@ -28,11 +30,12 @@ from OT1D cimport OT1Db_withplan as OT1Db_withplan
 from OT1D cimport OT1Dc_withplan as OT1Dc_withplan
 from OT1D cimport OT1Dd_withplan as OT1Dd_withplan
 
+from OT1D cimport OT1D_simd_supported, OT1D_set_simd
 from OT1D cimport _parasort as _parasort
 from OT1D cimport _parasort_mu as _parasort_mu
 
 # One function for optimal transport
-def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8, plan=False):
+def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=1, plan=False):
     # Accept lists, tuples and arrays of any numeric type (no copy if already
     # a C-contiguous array of float64)
     X = np.ascontiguousarray(X, dtype=float)
@@ -107,6 +110,30 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=8, plan=False):
                 return OT_1Dd(X, Y, A, B, sorting, threads)
 
 
+_SIMD_LEVELS = ('none', 'avx2', 'avx512')
+_simd_level = OT1D_simd_supported()
+
+
+def simd():
+    """SIMD instruction set used for sorting: 'avx512', 'avx2' or 'none'
+    (pdqsort/parasort). By default, the best one supported by the CPU."""
+    return _SIMD_LEVELS[_simd_level]
+
+
+def set_simd(level=None):
+    """Select the SIMD sorting: 'avx512', 'avx2', 'none', or None for the best
+    supported one (for instance, to compare timings). A level not supported is
+    lowered to the best supported one. Returns the level in use.
+    Not thread safe: do not call it while other threads are running OT1D."""
+    global _simd_level
+    if level is None:
+        level = _SIMD_LEVELS[OT1D_simd_supported()]
+    if level not in _SIMD_LEVELS:
+        raise ValueError("level must be one of {} or None, got {!r}".format(_SIMD_LEVELS, level))
+    _simd_level = OT1D_set_simd(_SIMD_LEVELS.index(level))
+    return _SIMD_LEVELS[_simd_level]
+
+
 def _check_inplace(V, name):
     if not (isinstance(V, np.ndarray) and V.dtype == np.float64 and V.ndim == 1
             and V.flags['C_CONTIGUOUS'] and V.flags['WRITEABLE']):
@@ -116,7 +143,7 @@ def _check_inplace(V, name):
 
 
 # Support for fast sorting (in place)
-def parasort(X, A=None, threads=8):
+def parasort(X, A=None, int threads=1):
     _check_inplace(X, 'X')
     if A is not None:
         _check_inplace(A, 'A')
@@ -126,128 +153,116 @@ def parasort(X, A=None, threads=8):
         return
 
     cdef double[::1] Xmv = X
+    cdef double[::1] Amv
+    cdef int n = len(X)
     if A is None:
-        _parasort(len(X), &Xmv[0], threads)
+        with nogil:
+            _parasort(n, &Xmv[0], threads)
         return
 
-    cdef double[::1] Amv = A
-    _parasort_mu(len(X), &Xmv[0], &Amv[0], threads)
+    Amv = A
+    with nogil:
+        _parasort_mu(n, &Xmv[0], &Amv[0], threads)
 
 
 #--------------------------------------------------------------
 # FROM C++
+#
+# The GIL is released around every call into C++: the computation
+# touches only the raw buffers of the numpy arrays (kept alive by the
+# memoryviews), so other Python threads can run concurrently.
 #--------------------------------------------------------------
-cdef double OT_1Da(X, Y, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-    cdef double[::1] Xmv = X
-    cdef double[::1] Ymv = Y
-    if m == n:
-        return OT1Da0(n, &Xmv[0], &Ymv[0], sorting, threads) 
-    return OT1Da(m, n, &Xmv[0], &Ymv[0], sorting, threads)
+cdef double OT_1Da(double[::1] Xmv, double[::1] Ymv, bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
+    cdef double z
+    with nogil:
+        if m == n:
+            z = OT1Da0(n, &Xmv[0], &Ymv[0], sorting, threads)
+        else:
+            z = OT1Da(m, n, &Xmv[0], &Ymv[0], sorting, threads)
+    return z
 
 
-cdef double OT_1Db(X, Y, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-    cdef double[::1] Xmv = X
-    cdef double[::1] Ymv = Y
-    if m == n:
-        return OT1Db0(n, &Xmv[0], &Ymv[0], sorting, threads)     
-    return OT1Db(m, n, &Xmv[0], &Ymv[0], sorting, threads)
+cdef double OT_1Db(double[::1] Xmv, double[::1] Ymv, bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
+    cdef double z
+    with nogil:
+        if m == n:
+            z = OT1Db0(n, &Xmv[0], &Ymv[0], sorting, threads)
+        else:
+            z = OT1Db(m, n, &Xmv[0], &Ymv[0], sorting, threads)
+    return z
 
 
-cdef double OT_1Dc(X, Y, A, B, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-    cdef double[::1] Xmv = X
-    cdef double[::1] Ymv = Y
-    cdef double[::1] Amv = A
-    cdef double[::1] Bmv = B
-    
-    return OT1Dc(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], sorting, threads)
+cdef double OT_1Dc(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+                   bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
+    cdef double z
+    with nogil:
+        z = OT1Dc(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], sorting, threads)
+    return z
 
 
-cdef double OT_1Dd(X, Y, A, B, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-    cdef double[::1] Xmv = X        
-    cdef double[::1] Ymv = Y 
-    cdef double[::1] Amv = A
-    cdef double[::1] Bmv = B
-    
-    return OT1Dd(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], sorting, threads)
+cdef double OT_1Dd(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+                   bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
+    cdef double z
+    with nogil:
+        z = OT1Dd(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], sorting, threads)
+    return z
 
 
-cdef (double, int) OT_1Da_plan(X, Y, T, W, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-
-    cdef double[::1] Xmv = X        
-    cdef double[::1] Ymv = Y 
-
-    cdef int[::1] Tmv = T
-    cdef double[::1] Wmv = W
+cdef (double, int) OT_1Da_plan(double[::1] Xmv, double[::1] Ymv, int[::1] Tmv, double[::1] Wmv,
+                               bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
     cdef int Smap = 0
-
-    if m == n:
-        z = OT1Da0_withplan(n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads) 
-    else:
-        z = OT1Da_withplan(m, n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
-
+    cdef double z
+    with nogil:
+        if m == n:
+            z = OT1Da0_withplan(n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
+        else:
+            z = OT1Da_withplan(m, n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
     return z, Smap
 
 
-cdef (double, int) OT_1Db_plan(X, Y, T, W, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-
-    cdef double[::1] Xmv = X        
-    cdef double[::1] Ymv = Y 
-
-    cdef int[::1] Tmv = T
-    cdef double[::1] Wmv = W
+cdef (double, int) OT_1Db_plan(double[::1] Xmv, double[::1] Ymv, int[::1] Tmv, double[::1] Wmv,
+                               bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
     cdef int Smap = 0
-
-    if m == n:
-        z = OT1Db0_withplan(n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads) 
-    else:
-        z = OT1Db_withplan(m, n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
-
+    cdef double z
+    with nogil:
+        if m == n:
+            z = OT1Db0_withplan(n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
+        else:
+            z = OT1Db_withplan(m, n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
     return z, Smap
 
 
-cdef (double, int) OT_1Dc_plan(X, Y, A, B, T, W, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-
-    cdef double[::1] Xmv = X        
-    cdef double[::1] Ymv = Y 
-    cdef double[::1] Amv = A
-    cdef double[::1] Bmv = B
-
-    cdef int[::1] Tmv = T
-    cdef double[::1] Wmv = W
+cdef (double, int) OT_1Dc_plan(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+                               int[::1] Tmv, double[::1] Wmv, bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
     cdef int Smap = 0
-
-    z = OT1Dc_withplan(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
-
+    cdef double z
+    with nogil:
+        z = OT1Dc_withplan(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], &Tmv[0], &Wmv[0], &Smap,
+                           sorting, threads)
     return z, Smap
 
 
-cdef (double, int) OT_1Dd_plan(X, Y, A, B, T, W, sorting=True, threads=8):
-    m = len(X)
-    n = len(Y)
-
-    cdef double[::1] Xmv = X        
-    cdef double[::1] Ymv = Y 
-    cdef double[::1] Amv = A
-    cdef double[::1] Bmv = B
-
-    cdef int[::1] Tmv = T
-    cdef double[::1] Wmv = W
+cdef (double, int) OT_1Dd_plan(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+                               int[::1] Tmv, double[::1] Wmv, bool sorting, int threads):
+    cdef int m = Xmv.shape[0]
+    cdef int n = Ymv.shape[0]
     cdef int Smap = 0
-
-    z = OT1Dd_withplan(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
-
+    cdef double z
+    with nogil:
+        z = OT1Dd_withplan(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], &Tmv[0], &Wmv[0], &Smap,
+                           sorting, threads)
     return z, Smap
