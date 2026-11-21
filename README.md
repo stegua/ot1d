@@ -4,6 +4,7 @@
 
 The OT1D library offers a simple but efficient implementation of an algorithm to compute the Kantorovich-Wasserstein distance between two empirical measures defined in dimension 1, that is, measures whose support points lie in **R**.
 We designed the algorithm by directly exploiting the [complementary slackness](https://en.wikipedia.org/wiki/Linear_programming#Complementary_slackness) conditions of Linear Programming.
+Since version 0.5.0, a second exact algorithm, based on the empirical cumulative distribution functions, compares one fixed *reference* sample against many other samples in a time that does not depend on the size of the reference (see [Many samples against one reference](#many-samples-against-one-reference)).
 The implementation focuses on efficiency rather than genericity, and we try to be as efficient as possible in several notable cases.
 We implemented the core algorithm in standard C++11, and we provide a Python 3 wrapper, which can be installed with:
 
@@ -36,10 +37,37 @@ The simplest way to test this library is to run the following notebook on Colab:
 
 
 ## Usage
-The main function of the **OT1D** library is the following:
+Since version 0.5.0 the module is called `ot1d` (lowercase), and offers the following functions:
 
 ```python
-z = OT1D(x, y, A=None, B=None, p=1, sorting=True, threads=1, plan=False)
+import ot1d
+
+z = ot1d.w1(x, y, A=None, B=None, method='simplex', sorting=True, threads=1)   # W1 between two samples
+z = ot1d.w2(x, y, A=None, B=None, method='simplex', sorting=True, threads=1)   # W2
+z, T, W = ot1d.w1_plan(x, y, A=None, B=None, sorting=True, threads=1)          # W1 and an optimal plan
+z, T, W = ot1d.w2_plan(x, y, A=None, B=None, sorting=True, threads=1)          # W2 and an optimal plan
+
+ref = ot1d.reference(x, A=None, threads=1)                                     # a sample prepared once
+z = ot1d.w1_reference(ref, y, B=None, method='ecdf', sorting=True)             # W1 between ref and y
+z = ot1d.w2_reference(ref, y, B=None, method='ecdf', sorting=True)             # W2
+zs = ot1d.w1_batch(x_or_ref, ys, A=None, Bs=None, method='ecdf', threads=1)    # W1 between x and each y in ys
+zs = ot1d.w2_batch(x_or_ref, ys, A=None, Bs=None, method='ecdf', threads=1)    # W2
+```
+
+The parameter `method` selects the algorithm:
+
+* `'simplex'` (default for `w1` and `w2`): the north-west corner rule, derived from the complementary slackness conditions of the transportation linear program. After sorting both samples, it walks once over the n + m support points.
+* `'ecdf'` (default for `reference`, `w1_reference`, `w2_reference`, `w1_batch`, `w2_batch`): the quantile form of 1D optimal transport, which integrates |F<sup>-1</sup>(u) - G<sup>-1</sup>(u)|<sup>p</sup> using prefix sums precomputed on the reference. A sample of size m costs O(m log m) to sort it, plus O(m) for W2 and O(m log(n/m)) at most for W1, whatever the size n of the reference.
+
+Both methods are exact and return the same value for probability measures (no weights, or weights summing to 1). With weights of total mass M different from 1, `'simplex'` returns, as `OT1D` always did, the cost of transporting the mass M (that is, M W1 or sqrt(M) W2), and if the two total masses differ it transports only the smaller one, with a `RuntimeWarning`; `'ecdf'` normalizes the weights to probability measures, and raises a `ValueError` if the two total masses differ.
+
+**Migrating from 0.4:** replace `from OT1D import OT1D, parasort` with `from ot1d import OT1D, parasort` (or `import ot1d`); the function `OT1D` is unchanged, and `OT1D(x, y, p=1)` equals `ot1d.w1(x, y)`.
+
+### The function OT1D (v0.4 interface)
+The main function of versions up to 0.4 is still available:
+
+```python
+z = ot1d.OT1D(x, y, A=None, B=None, p=1, sorting=True, threads=1, plan=False)
 ```
 
 The parameters of the function are:
@@ -56,6 +84,39 @@ The parameters of the function are:
 The first four parameters can be given as numpy arrays (*preferred*) or Python lists.
 
 All the functions release the GIL while running the C++ code, so several calls can run in parallel from different Python threads (for instance, with a `ThreadPoolExecutor`); in this case, keep `threads=1`.
+
+### Many samples against one reference
+Drift monitoring compares many samples (for instance, the chunks of a data stream) with one fixed reference sample, often much larger. The reference is prepared once, by sorting it and computing the prefix sums of its values and of their squares; every query then costs about as much as sorting the query itself:
+
+```python
+import numpy as np
+import ot1d
+
+rng = np.random.default_rng(0)
+x = rng.lognormal(0, 1, 10_000_000)                          # reference: 10 million points
+chunks = [rng.lognormal(0.1, 1, 10_000) for _ in range(100)]
+
+ref = ot1d.reference(x)                                       # sort and prefix sums, once
+z = ot1d.w1_reference(ref, chunks[0])                         # one sample
+zs = ot1d.w1_batch(ref, chunks, threads=4)                    # all the samples, on 4 threads
+```
+
+* `ot1d.reference(x, A=None, threads=1)` copies and sorts `x` (with optional weights `A`) and uses 24 bytes per point (32 with weights). It has `len(ref)`, and the read-only attributes `mean`, `nbytes`, `sorted_values`, `weights`. It can be pickled.
+* `ot1d.w1_reference(ref, y, B=None, method='ecdf', sorting=True)` returns W1 between the reference and the sample `y` (with optional weights `B`); with `sorting=False`, `y` (and `B`) must be already sorted by `y`. `method='simplex'` merges the sorted reference with the sorted query instead, in O(n + m).
+* `ot1d.w1_batch(x_or_ref, ys, A=None, Bs=None, method='ecdf', threads=1)` returns a numpy array with the distances between the reference (an `ot1d.reference`, or a sample `x` with weights `A`, prepared on the fly) and each sample of `ys`, a list of 1D arrays or a 2D array with one sample per row. `Bs` gives the weights of the samples, in the same layout. The samples are split over `threads` threads.
+* `w2_reference` and `w2_batch` are the same for W2.
+
+Time per sample of 10<sup>4</sup> points (lognormal data, 1 thread, Intel Xeon w9-3495X with AVX-512):
+
+| reference size | `w1_reference` (ecdf) | `w2_reference` (ecdf) | `OT1D`, reference sorted once | [NannyML](https://github.com/NannyML/nannyml) binned W1 (10<sup>4</sup> bins, approximate) |
+|---:|---:|---:|---:|---:|
+| 10<sup>5</sup> | 0.055 ms | 0.052 ms | 0.15 ms | 0.13 ms |
+| 10<sup>6</sup> | 0.052 ms | 0.050 ms | 1.7 ms | 0.14 ms |
+| 10<sup>7</sup> | 0.100 ms | 0.088 ms | 49 ms | 0.13 ms |
+
+Preparing the reference of 10<sup>7</sup> points takes 0.18 seconds (sorting alone takes 0.09 seconds). The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
+
+The values agree with a long double north-west corner merge to about 1e-14 relative error (at least 1e-11 in all the tests): the quantile positions are exact integers, and the prefix sums are accumulated with compensated (Neumaier) summation. One known limit concerns W2 only: its square has an absolute error of order 1e-16 times the variance of the reference, so a W2 smaller than about 1e-7 times the standard deviation of the reference (for instance, a sample equal to the reference) is returned as about 1e-8 times that standard deviation, instead of 0. W1 has no such limit.
 
 ### Sorting at the speed of light
 In addition, we expose the following in-place parallel sorting function:
@@ -83,7 +144,8 @@ with [parasort](https://github.com/baserinia/parallel-sort). See the linked webp
 
 On x86-64 CPUs, the Python wrapper sorts with the vectorized quicksort of [x86-simd-sort](https://github.com/intel/x86-simd-sort) (BSD 3-Clause License), the same library used by `np.sort`. The best instruction set supported by the CPU is selected at runtime: AVX-512 (for instance, Intel Skylake-X and later, AMD Zen 4 and later), AVX2 (almost every x86-64 CPU since 2013), or none, falling back to pdqsort and parasort. With AVX-512 a single thread sorts 3 to 8 times faster than pdqsort, and with AVX2 about 2.5 times faster, so `threads` matters only for weighted measures (or with a plan) of at least one million points. You can check which one is used with `OT1D.simd()`, and select another one with `OT1D.set_simd('avx2')` (or `'avx512'`, `'none'`), for instance to compare timings. To build without them, set the environment variable `OT1D_NO_SIMD=1` before installing.
 
-In C++, the header `OT1D.hpp` uses pdqsort and parasort by default. To use the SIMD sorting, compile `include/ot1d_avx2.cpp` and/or `include/ot1d_avx512.cpp` (C++17) with the corresponding flags, compile your code with `-DOT1D_USE_AVX2` and/or `-DOT1D_USE_AVX512`, and link these object files last, AVX2 first (see the target `test-simd` in the `Makefile`).
+In C++, the header `OT1D.hpp` offers the same functions in the namespace `ot1d`, with 64-bit sizes: `ot1d::w1`, `ot1d::w2`, the class `ot1d::reference`, `ot1d::w1_reference`, `ot1d::w2_reference`, `ot1d::w1_batch` and `ot1d::w2_batch` (samples given one after the other in a single buffer, with an array of offsets), and the enumeration `ot1d::Method { Simplex, Ecdf }`; the functions `OT1Da`, ..., `OT1Dd_withplan` of version 0.4 are unchanged. See the comments in the header.
+The header uses pdqsort and parasort by default. To use the SIMD sorting, compile `include/ot1d_avx2.cpp` and/or `include/ot1d_avx512.cpp` (C++17) with the corresponding flags, compile your code with `-DOT1D_USE_AVX2` and/or `-DOT1D_USE_AVX512`, and link these object files last, AVX2 first (see the target `test-simd` in the `Makefile`).
 
 ### Prerequisites for compilation
 
@@ -119,7 +181,7 @@ A basic usage example is the following:
 
 ```python
 import numpy as np
-from OT1D import OT1D, parasort
+import ot1d
 
 np.random.seed(13)
 
@@ -129,7 +191,7 @@ N = 1000000
 x = np.random.uniform(1, 2, N)
 y = np.random.uniform(0, 1, N)
 
-z = OT1D(x, y, p=2, sorting=True, threads=16)
+z = ot1d.w2(x, y, sorting=True, threads=16)
 
 print('Wasserstein distance of order 2, W2(x,y) =', z)
 ```
@@ -139,12 +201,15 @@ Wasserstein distance of order 2, W2(x,y) = 1.0002549459050794
 ```
 
 ### Testing for correctness
-The repository includes two test suites, which compare every function against an independent reference implementation, and check that the transportation plans are feasible and optimal:
+The repository includes three test suites, which compare every function against an independent reference implementation, and check that the transportation plans are feasible and optimal:
 
 ```bash
-make test                         # C++ tests (also: make sanitize)
+make test                         # C++ tests (also: make sanitize, with AddressSanitizer, UBSan and ThreadSanitizer)
 cd python && python3 test_wrapper.py  # Python wrapper tests (requires scipy)
+cd python && OT1D_REFERENCE=native python3 -m pytest test_reference.py  # both methods (requires pytest)
 ```
+
+Without `OT1D_REFERENCE=native`, `test_reference.py` runs on [reference_prototype.py](https://github.com/stegua/ot1d/blob/main/python/reference_prototype.py), the NumPy implementation of the `'ecdf'` method that served as its specification.
 
 ### Testing for performance
 The following results can be reproduced by running the following command (you need to have installed [scipy](https://scipy.org/) and [pot](https://pythonot.github.io/)):
