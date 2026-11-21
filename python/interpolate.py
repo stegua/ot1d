@@ -9,7 +9,7 @@
 import plotly.figure_factory as ff
 
 import numpy as np
-from OT1D import OT1D, parasort
+from ot1d import OT1D, parasort
 
 np.random.seed(13)
 

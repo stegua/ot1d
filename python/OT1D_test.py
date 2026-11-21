@@ -12,7 +12,7 @@ from scipy.stats import wasserstein_distance as W1
 import ot
 
 
-from OT1D import OT1D, parasort
+from ot1d import OT1D, parasort
 
 
 def Test1(p, q, threads=8):

@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 from scipy.stats import wasserstein_distance
 
-from OT1D import OT1D, parasort
+from ot1d import OT1D, parasort
 
 
 def reference(x, y, a, b, p):

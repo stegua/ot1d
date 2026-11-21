@@ -68,8 +68,8 @@ class BuildExtSIMD(build_ext):
         build_ext.build_extension(self, ext)
 
 
-extensions = Extension(name="OT1D",
-                       sources=["OT1D.pyx"],
+extensions = Extension(name="ot1d",
+                       sources=["ot1d.pyx"],
                        include_dirs=['./'],
                        extra_compile_args=CC_ARGS,
                        extra_link_args=LD_ARGS)
@@ -79,7 +79,7 @@ with open('README.md', encoding="utf-8") as f:
 
 setup(
     name='OT1D',
-    version='0.4.1',
+    version='0.5.0',
     packages=find_packages(),
     description='Discrete Optimal Transport in 1D by Linear Programming',
     author='Stefano Gualandi',
