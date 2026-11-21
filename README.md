@@ -110,11 +110,13 @@ Time per sample of 10<sup>4</sup> points (lognormal data, 1 thread, Intel Xeon w
 
 | reference size | `w1_reference` (ecdf) | `w2_reference` (ecdf) | `OT1D`, reference sorted once | [NannyML](https://github.com/NannyML/nannyml) binned W1 (10<sup>4</sup> bins, approximate) |
 |---:|---:|---:|---:|---:|
-| 10<sup>5</sup> | 0.051 ms | 0.054 ms | 0.16 ms | 0.16 ms |
-| 10<sup>6</sup> | 0.061 ms | 0.053 ms | 1.7 ms | 0.13 ms |
-| 10<sup>7</sup> | 0.10 ms | 0.09 ms | 49 ms | 0.14 ms |
+| 10<sup>5</sup> | 0.054 ms | 0.051 ms | 0.16 ms | 0.17 ms |
+| 10<sup>6</sup> | 0.057 ms | 0.051 ms | 1.7 ms | 0.13 ms |
+| 10<sup>7</sup> | 0.074 ms | 0.052 ms | 48 ms | 0.14 ms |
 
-Preparing the reference of 10<sup>7</sup> points takes 0.15 seconds (sorting alone takes 0.08 seconds), or 0.09 seconds if it is already sorted (`sorting=False`). Weights make the queries slower, because the quantile positions are no longer integers: against the reference of 10<sup>7</sup> points, a weighted sample takes 0.23 ms (W1) and 0.26 ms (W2); with a weighted reference, a sample takes 0.44 ms without weights and 0.60 ms with weights (preparing that reference takes 0.37 seconds). The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
+Preparing the reference of 10<sup>7</sup> points takes 0.11 seconds (sorting alone takes 0.08 seconds), or 0.06 seconds if it is already sorted (`sorting=False`). Weights make the queries slower, because the quantile positions are no longer integers: against the reference of 10<sup>7</sup> points, a weighted sample takes 0.20 ms (W1) and 0.21 ms (W2); with a weighted reference, a sample takes 0.30 ms without weights and 0.50 ms with weights (preparing that reference takes 0.32 seconds).
+
+On Linux, the arrays of a large reference are allocated on transparent huge pages (2 MB), when the system allows them on request (the setting `madvise` or `always` in `/sys/kernel/mm/transparent_hugepage/enabled`, the default of the main distributions). The timings above use them; with standard 4 KB pages, preparing the reference of 10<sup>7</sup> points takes 0.15 seconds, and a sample about 0.10 ms. The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
 
 The values agree with a long double north-west corner merge to about 1e-14 relative error (at least 1e-11 in all the tests): the quantile positions are exact integers, and the prefix sums are accumulated with compensated (Neumaier) summation. One known limit concerns W2 only: its square has an absolute error of order 1e-16 times the variance of the reference, so a W2 smaller than about 1e-7 times the standard deviation of the reference (for instance, a sample equal to the reference) is returned as about 1e-8 times that standard deviation, instead of 0. W1 has no such limit.
 

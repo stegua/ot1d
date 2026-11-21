@@ -77,6 +77,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(__linux__)
+#include <sys/mman.h>   // madvise: transparent huge pages for the buffers of a reference
+#endif
+
 // Super fast sorting algorithm (C++11)
 // https://github.com/orlp/pdqsort
 #include "pdqsort.h"
@@ -679,16 +683,55 @@ enum class Method { Simplex = 0, Ecdf = 1 };
 
 namespace detail {
 
-// Allocator that leaves new elements uninitialized on resize: the prefix sums
-// are written once by the fit, and zero-filling them first would double the
-// page faults (measured: +40% fit time at n = 10^7).
+// Allocator of the buffers of a reference:
+//   - it leaves new elements uninitialized on resize: the buffers are written
+//     once by the fit, and zero-filling them first would touch them twice;
+//   - on Linux, large buffers are aligned to 2 MB and marked for transparent
+//     huge pages (madvise). Measured at n = 10^7: the page faults of the 240 MB
+//     of a new reference took about 60 ms of the 165 ms of the fit with 4 KB
+//     pages, and the queries, which jump through the buffers, are faster with
+//     fewer TLB misses. If huge pages are not available, nothing changes.
 template <class T>
-struct uninit_alloc : std::allocator<T> {
+struct uninit_alloc {
+    typedef T value_type;
     template <class U> struct rebind { typedef uninit_alloc<U> other; };
     uninit_alloc() = default;
     template <class U> uninit_alloc(const uninit_alloc<U>&) {}
+
+    static bool huge(size_t bytes) {
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+        return bytes >= ((size_t)4 << 20);
+#else
+        (void)bytes;
+        return false;
+#endif
+    }
+
+    T* allocate(size_t k) {
+        if (k > (size_t)-1 / sizeof(T)) throw std::bad_alloc();
+        const size_t bytes = k * sizeof(T);
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+        if (huge(bytes)) {
+            void* p = nullptr;
+            if (posix_memalign(&p, (size_t)2 << 20, bytes) != 0) throw std::bad_alloc();
+            madvise(p, bytes, MADV_HUGEPAGE);  // a hint: its failure is harmless
+            return static_cast<T*>(p);
+        }
+#endif
+        return static_cast<T*>(::operator new(bytes));
+    }
+
+    void deallocate(T* p, size_t k) {
+        if (huge(k * sizeof(T)))
+            std::free(p);
+        else
+            ::operator delete(p);
+    }
+
     template <class U> void construct(U* p) { ::new ((void*)p) U; }
     template <class U, class... A> void construct(U* p, A&&... a) { ::new ((void*)p) U(std::forward<A>(a)...); }
+    template <class U> bool operator==(const uninit_alloc<U>&) const { return true; }
+    template <class U> bool operator!=(const uninit_alloc<U>&) const { return false; }
 };
 
 // ---------------------------------------------------------------- validation
@@ -786,15 +829,20 @@ inline int64_t gallop_upper(const double* a, int64_t len, int64_t lo, double v) 
 // Uniform weights, c = mean(r): P1[i] = sum_{l<i} (r_l - c), P2[i] = sum_{l<i} (r_l - c)^2.
 OT1D_PRECISE_ATTR inline void fit_uniform(const double* r, int64_t n, double c, double* P1, double* P2) {
     OT1D_PRECISE_SCOPE
+    // Each iteration stores at the index it loads from, not one ahead: the
+    // buffers have the same alignment (see uninit_alloc), and a store to
+    // P1[i + 1] followed by the load of r[i + 1] would share the low 12 bits of
+    // the address (4K aliasing), which made this loop 4 times slower.
     double s1 = 0.0, e1 = 0.0, s2 = 0.0, e2 = 0.0;
-    P1[0] = P2[0] = 0.0;
     for (int64_t i = 0; i < n; i++) {
         double z = r[i] - c;
+        P1[i] = s1 + e1;
+        P2[i] = s2 + e2;
         OT1D_NEUMAIER(s1, e1, z);
         OT1D_NEUMAIER(s2, e2, z * z);
-        P1[i + 1] = s1 + e1;
-        P2[i + 1] = s2 + e2;
     }
+    P1[n] = s1 + e1;
+    P2[n] = s2 + e2;
 }
 
 // Weights w (sum wsum): U[i] = sum_{l<i} w_l / wsum (U[n] = 1), c = weighted
@@ -806,18 +854,19 @@ OT1D_PRECISE_ATTR inline void fit_weighted(const double* r, const double* w, int
     for (int64_t i = 0; i < n; i++) OT1D_NEUMAIER(s, e, (w[i] / wsum) * r[i]);
     c = s + e;
     double su = 0.0, eu = 0.0, s1 = 0.0, e1 = 0.0, s2 = 0.0, e2 = 0.0;
-    U[0] = S1[0] = S2[0] = 0.0;
-    for (int64_t i = 0; i < n; i++) {
+    for (int64_t i = 0; i < n; i++) {   // stores at the index of the loads, as in fit_uniform
         double wi = w[i] / wsum;
         double z = r[i] - c;
+        U[i] = su + eu;
+        S1[i] = s1 + e1;
+        S2[i] = s2 + e2;
         OT1D_NEUMAIER(su, eu, wi);
         OT1D_NEUMAIER(s1, e1, wi * z);
         OT1D_NEUMAIER(s2, e2, wi * z * z);
-        U[i + 1] = su + eu;
-        S1[i + 1] = s1 + e1;
-        S2[i + 1] = s2 + e2;
     }
     U[n] = 1.0;
+    S1[n] = s1 + e1;
+    S2[n] = s2 + e2;
 }
 
 // Per-thread buffers of a query

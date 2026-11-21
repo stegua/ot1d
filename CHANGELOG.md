@@ -36,6 +36,10 @@
   `inf` with both methods, as in IEEE 754 arithmetic.
 * `OT1D`, `w1_plan` and `w2_plan` accept read-only arrays.
 
+* On Linux, the arrays of a large reference use transparent huge pages (if the system allows
+  them with `madvise`): preparing a reference of 10^7 points takes 0.11 s instead of 0.15 s
+  (1.3 times `np.sort`), and the queries are up to 1.7 times faster.
+
 ### Known limits
 * With `method='ecdf'`, W2 squared has an absolute error of order 1e-16 times the variance of the
   reference: a W2 below about 1e-7 times its standard deviation is returned as about 1e-8 times it,
