@@ -101,7 +101,7 @@ z = ot1d.w1_reference(ref, chunks[0])                         # one sample
 zs = ot1d.w1_batch(ref, chunks, threads=4)                    # all the samples, on 4 threads
 ```
 
-* `ot1d.reference(x, A=None, threads=1, sorting=True)` copies and sorts `x` (with optional weights `A`) and uses 24 bytes per point (32 with weights). With `sorting=False`, `x` (and `A`) must be already sorted by `x`, and is only copied. It has `len(ref)`, and the read-only attributes `mean`, `nbytes`, `sorted_values`, `weights`. It can be pickled.
+* `ot1d.reference(x, A=None, threads=1, sorting=True)` copies and sorts `x` (with optional weights `A`) and uses 24 bytes per point (33 with weights). With `sorting=False`, `x` (and `A`) must be already sorted by `x`, and is only copied. It has `len(ref)`, and the read-only attributes `mean`, `nbytes`, `sorted_values`, `weights`. It can be pickled.
 * `ot1d.w1_reference(ref, y, B=None, method='ecdf', sorting=True)` returns W1 between the reference and the sample `y` (with optional weights `B`); with `sorting=False`, `y` (and `B`) must be already sorted by `y`. `method='simplex'` merges the sorted reference with the sorted query instead, in O(n + m).
 * `ot1d.w1_batch(x_or_ref, ys, A=None, Bs=None, method='ecdf', threads=1)` returns a numpy array with the distances between the reference (an `ot1d.reference`, or a sample `x` with weights `A`, prepared on the fly) and each sample of `ys`, a list of 1D arrays or a 2D array with one sample per row. `Bs` gives the weights of the samples, in the same layout. The samples are split over `threads` threads.
 * `w2_reference` and `w2_batch` are the same for W2.
@@ -110,11 +110,11 @@ Time per sample of 10<sup>4</sup> points (lognormal data, 1 thread, Intel Xeon w
 
 | reference size | `w1_reference` (ecdf) | `w2_reference` (ecdf) | `OT1D`, reference sorted once | [NannyML](https://github.com/NannyML/nannyml) binned W1 (10<sup>4</sup> bins, approximate) |
 |---:|---:|---:|---:|---:|
-| 10<sup>5</sup> | 0.055 ms | 0.052 ms | 0.15 ms | 0.13 ms |
-| 10<sup>6</sup> | 0.052 ms | 0.050 ms | 1.7 ms | 0.14 ms |
-| 10<sup>7</sup> | 0.100 ms | 0.088 ms | 49 ms | 0.13 ms |
+| 10<sup>5</sup> | 0.051 ms | 0.054 ms | 0.16 ms | 0.16 ms |
+| 10<sup>6</sup> | 0.061 ms | 0.053 ms | 1.7 ms | 0.13 ms |
+| 10<sup>7</sup> | 0.10 ms | 0.09 ms | 49 ms | 0.14 ms |
 
-Preparing the reference of 10<sup>7</sup> points takes 0.18 seconds (sorting alone takes 0.09 seconds). The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
+Preparing the reference of 10<sup>7</sup> points takes 0.15 seconds (sorting alone takes 0.08 seconds), or 0.09 seconds if it is already sorted (`sorting=False`). Weights make the queries slower, because the quantile positions are no longer integers: against the reference of 10<sup>7</sup> points, a weighted sample takes 0.23 ms (W1) and 0.26 ms (W2); with a weighted reference, a sample takes 0.44 ms without weights and 0.60 ms with weights (preparing that reference takes 0.37 seconds). The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
 
 The values agree with a long double north-west corner merge to about 1e-14 relative error (at least 1e-11 in all the tests): the quantile positions are exact integers, and the prefix sums are accumulated with compensated (Neumaier) summation. One known limit concerns W2 only: its square has an absolute error of order 1e-16 times the variance of the reference, so a W2 smaller than about 1e-7 times the standard deviation of the reference (for instance, a sample equal to the reference) is returned as about 1e-8 times that standard deviation, instead of 0. W1 has no such limit.
 
@@ -294,12 +294,15 @@ All W2 values match POT: max relative error = 1.42e-11
 Please contact us by email if you encounter any issues.
 
 ### Use of AI tools
-The algorithms in this library were designed and originally implemented by hand by the author.
+The simplex-based algorithm (`method='simplex'`, the only one up to release 0.4) was designed and originally implemented by hand by the author.
 For release 0.4.0, the author used [Claude Code](https://claude.com/claude-code) (the Anthropic CLI) with the Opus 5.5 model to debug and test the library.
 In that process, Claude found and fixed several bugs, restructured parts of the C++ header [OT1D.hpp](https://github.com/stegua/ot1d/blob/main/include/OT1D.hpp) while fixing them, and wrote the test suites.
-Every change was reviewed and committed by the author, who remains solely responsible for the code.
 
-#code-written-by-human-hands
+Release 0.5.0 is different: it was written by Claude (Claude Code, with the Opus 5.5 and Fable 5.2 models) under the supervision of the author.
+This covers the implementation of the ecdf-based algorithm (`method='ecdf'`) in C++ and Python, the new functions (`w1`, `w2`, `reference`, `w1_reference`, `w1_batch`, and so on), their tests, the benchmark, and the documentation of the release.
+The author set the requirements, chose the names and the interface, took the design decisions, and directed the reviews of the code, but did not write this code by hand.
+
+Every change was reviewed and committed by the author, who remains solely responsible for the code.
 
 ### Author and maintainer
 Stefano Gualandi, stefano.gualandi@gmail.com.

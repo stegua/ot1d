@@ -7,7 +7,7 @@
   integrals of the reference quantile function precomputed as prefix sums. Every function takes the
   parameter `method`: `'simplex'` (the north-west corner rule of the previous versions) or `'ecdf'`.
 * `ot1d.reference(X, A=None, threads=1, sorting=True)`: a sample prepared once (sorted, centered,
-  with compensated prefix sums), 24 bytes per point (32 with weights), picklable. With
+  with compensated prefix sums), 24 bytes per point (33 with weights), picklable. With
   `sorting=False` the sample is already sorted, and is only copied.
 * `ot1d.w1_reference`, `ot1d.w2_reference`: distance between a reference and a sample. With
   `method='ecdf'` a sample of size m costs O(m log m) to sort it plus O(m) (W2) or O(m log(n/m))

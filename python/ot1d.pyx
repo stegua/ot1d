@@ -76,6 +76,26 @@ def _weights(W, n, name):
     return W  # values (finite, nonnegative, positive sum) are checked in C++
 
 
+def _py_error(err, names):
+    """ValueError of the C++ code, reworded with the names of the Python parameters.
+
+    The C++ messages are "<what>: the sample ..." or "<what>: weights ...", where
+    <what> is x, y, reference or query; names maps <what> to the pair (name of
+    the sample, name of its weights), for instance {'x': ('X', 'A')}.
+    """
+    msg = str(err).replace("Method::Simplex", "method='simplex'").replace("Method::Ecdf", "method='ecdf'")
+    what, sep, rest = msg.partition(': ')
+    if sep and what in names:
+        sample, weights = names[what]
+        if rest.startswith('the sample '):
+            msg = sample + rest[len('the sample'):]
+        elif rest.startswith('weights '):
+            msg = 'the weights ' + weights + rest[len('weights'):]
+    elif msg.startswith('ot1d: '):
+        msg = msg[len('ot1d: '):]
+    return ValueError(msg)
+
+
 #--------------------------------------------------------------
 # Two samples
 #--------------------------------------------------------------
@@ -107,11 +127,14 @@ def _pair(int p, X, Y, A, B, method, bool sorting, int threads):
     if B is not None:
         Bmv = B
         b = &Bmv[0]
-    with nogil:
-        if p == 1:
-            z = c_w1(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
-        else:
-            z = c_w2(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
+    try:
+        with nogil:
+            if p == 1:
+                z = c_w1(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
+            else:
+                z = c_w2(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
+    except ValueError as e:
+        raise _py_error(e, {'x': ('X', 'A'), 'reference': ('X', 'A'), 'y': ('Y', 'B')}) from None
     # The warning of 'simplex' comes after the call, once C++ has validated the weights
     if me == Method.Simplex and sa is not None:
         if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
@@ -169,7 +192,7 @@ cdef class reference:
 
     ref = reference(X, A=None, threads=1, sorting=True) copies and sorts X (threads: threads of
     the parallel sort) and stores the prefix sums used by method='ecdf': 24 bytes
-    per point (32 with weights). Query it with w1_reference, w2_reference,
+    per point (33 with weights). Query it with w1_reference, w2_reference,
     w1_batch and w2_batch; queries are thread safe and release the GIL.
     Weights are normalized to a probability measure.
 
@@ -191,13 +214,16 @@ cdef class reference:
         cdef const double[::1] Amv
         cdef int64_t n = len(X)
         cdef c_reference* r
-        if A is None:
-            with nogil:
-                r = new c_reference(&Xmv[0], n, threads, not sorting)
-        else:
-            Amv = A
-            with nogil:
-                r = new c_reference(&Xmv[0], &Amv[0], n, threads, not sorting)
+        try:
+            if A is None:
+                with nogil:
+                    r = new c_reference(&Xmv[0], n, threads, not sorting)
+            else:
+                Amv = A
+                with nogil:
+                    r = new c_reference(&Xmv[0], &Amv[0], n, threads, not sorting)
+        except ValueError as e:
+            raise _py_error(e, {'reference': ('X', 'A')}) from None
         self._ref.reset(r)
 
     def __len__(self):
@@ -264,11 +290,14 @@ def _query(int p, reference ref, Y, B, method, bool sorting):
     if B is not None:
         Bmv = B
         b = &Bmv[0]
-    with nogil:
-        if p == 1:
-            z = c_w1_reference(r[0], &Ymv[0], b, m, me, not sorting)
-        else:
-            z = c_w2_reference(r[0], &Ymv[0], b, m, me, not sorting)
+    try:
+        with nogil:
+            if p == 1:
+                z = c_w1_reference(r[0], &Ymv[0], b, m, me, not sorting)
+            else:
+                z = c_w2_reference(r[0], &Ymv[0], b, m, me, not sorting)
+    except ValueError as e:
+        raise _py_error(e, {'query': ('Y', 'B')}) from None
     return z
 
 
@@ -339,11 +368,15 @@ def _batch(int p, X, Ys, A, Bs, method, int threads):
     if B is not None:
         Bmv = B if len(B) > 0 else np.zeros(1)
         b = &Bmv[0]
-    with nogil:
-        if p == 1:
-            c_w1_batch(r[0], &Ymv[0], b, &Omv[0], k, &Zmv[0], me, threads)
-        else:
-            c_w2_batch(r[0], &Ymv[0], b, &Omv[0], k, &Zmv[0], me, threads)
+    try:
+        with nogil:
+            if p == 1:
+                c_w1_batch(r[0], &Ymv[0], b, &Omv[0], k, &Zmv[0], me, threads)
+            else:
+                c_w2_batch(r[0], &Ymv[0], b, &Omv[0], k, &Zmv[0], me, threads)
+    except ValueError as e:
+        raise _py_error(e, {'query': ('a sample of Ys', 'of a sample of Bs'),
+                            'batch': ('a sample of Ys', 'of a sample of Bs')}) from None
     return out
 
 
