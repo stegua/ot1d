@@ -123,7 +123,7 @@ class Reference:
         s = np.clip(k * m, a, b)  # sign change of F^{-1} - y_j, integer position
         q1s, _ = self._NQ_int(s, m)
         t = yc * (s - a) - (q1s - q1a) + (q1b - q1s) - yc * (b - s)
-        return float(t.sum() / N)
+        return float(max(t.sum() / N, 0.0))  # a distance is never negative
 
     # ------------------------------------------------------------------ general (weighted) path
     def _Q_w(self, u):
@@ -157,7 +157,7 @@ class Reference:
         s = np.clip(self._F(y), a, b)
         q1s, _ = self._Q_w(s)
         t = yc * (s - a) - (q1s - q1a) + (q1b - q1s) - yc * (b - s)
-        return float(t.sum())
+        return float(max(t.sum(), 0.0))  # a distance is never negative
 
     # ------------------------------------------------------------------ public API
     def distance(self, y, p=1, b=None, sorted=False) -> float:

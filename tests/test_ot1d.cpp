@@ -377,6 +377,8 @@ static void run_ot1d_case(std::mt19937& gen, int n, int m, int kind) {
                 for (int p = 1; p <= 2; p++) {
                     double z = wref(p, R, y.data(), wq ? wb.data() : nullptr, m, me);
                     double zs = wref(p, R, ys.data(), wq ? bs.data() : nullptr, m, me, true);
+                    CHECK(z >= 0.0 && zs >= 0.0, "w%d_reference %s n=%d m=%d kind=%d wr=%d wq=%d: negative %.3g %.3g",
+                          p, method_name(me), n, m, kind, wr, wq, z, zs);
                     CHECK(close(z, r[p], tol), "w%d_reference %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
                           p, method_name(me), n, m, kind, wr, wq, z, r[p]);
                     CHECK(close(zs, r[p], tol), "w%d_reference presorted %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",

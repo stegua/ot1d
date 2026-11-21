@@ -2,6 +2,11 @@
 
 ## 0.5.1 (in development)
 
+### Fixed
+* `method='ecdf'`: W1 could be slightly negative (a few 1e-17 times the scale of the data) on
+  samples very close to the reference, for instance drawn from its points. A sum that rounding
+  leaves below 0 is now returned as 0, as it already was for W2.
+
 ## 0.5.0 (2026-11-21)
 
 ### New

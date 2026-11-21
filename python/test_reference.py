@@ -319,6 +319,26 @@ def test_presorted_reference(method, weighted):
         ot1d.w1(x, y, method="ecdf", sorting=False)
 
 
+@pytest.mark.parametrize("scale", [1.0, 1e6, 1e12])
+def test_never_negative(scale):
+    """A distance is never negative: with method='ecdf' the rounding of W1 (a few 1e-17 times the
+    scale of the data) used to leave values slightly below 0 on samples drawn from the reference."""
+    r = np.random.default_rng(16)
+    for t in range(400):
+        n, m = int(r.integers(1, 300)), int(r.integers(1, 300))
+        x = r.normal(size=n) * scale
+        if t % 3 == 0:
+            x = np.round(x / scale * 3) * scale  # many ties
+        y = x.copy() if t % 4 == 0 else r.choice(x, size=m)
+        a = r.random(n) if t % 2 else None
+        b = (a.copy() if t % 4 == 0 else r.random(len(y))) if a is not None else None
+        if a is not None:
+            a, b = a / a.sum(), b / b.sum()
+        R = ot1d.reference(x, a)
+        assert ot1d.w1_reference(R, y, b) >= 0.0
+        assert ot1d.w2_reference(R, y, b) >= 0.0
+
+
 @native_only
 @pytest.mark.parametrize("method", ["ecdf", "simplex"])
 def test_overflow_is_inf(method):

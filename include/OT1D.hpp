@@ -1032,8 +1032,10 @@ OT1D_PRECISE_ATTR double ecdf_uniform(const reference& R, const double* y, int64
         q1a = q1b; q2a = q2b;
     }
     double z = (S + E) / (nd * md);
-    if (P == 1) return z;
-    return std::sqrt(z < 0.0 ? 0.0 : z);  // rounding below 0 only: NaN (overflow) is kept for `overflow_to_inf`
+    // A distance is never negative: a sum that rounding leaves below 0 is 0.
+    // NaN (overflow) is not below 0, and is kept for `overflow_to_inf`.
+    if (z < 0.0) z = 0.0;
+    return P == 1 ? z : std::sqrt(z);
 }
 
 // ------------------------------------------------- ecdf, weights on either side
@@ -1158,8 +1160,10 @@ OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, cons
         a = bpos; q1a = q1b; q2a = q2b; ia = ib;
     }
     double z = S + E;
-    if (P == 1) return z;
-    return std::sqrt(z < 0.0 ? 0.0 : z);  // rounding below 0 only: NaN (overflow) is kept for `overflow_to_inf`
+    // A distance is never negative: a sum that rounding leaves below 0 is 0.
+    // NaN (overflow) is not below 0, and is kept for `overflow_to_inf`.
+    if (z < 0.0) z = 0.0;
+    return P == 1 ? z : std::sqrt(z);
 }
 
 // ------------------------------------------------- simplex on a reference
