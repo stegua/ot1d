@@ -14,7 +14,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <random>
+#include <stdexcept>
+#include <thread>
 #include <vector>
 
 static int failures = 0;
@@ -271,6 +274,260 @@ static void test_simd_level(int level) {
 }
 #endif
 
+// ============================================================================
+// namespace ot1d (v0.5.0): w1/w2, reference, w*_reference, w*_batch
+// ============================================================================
+
+static const ot1d::Method METHODS[] = {ot1d::Method::Simplex, ot1d::Method::Ecdf};
+
+static const char* method_name(ot1d::Method me) {
+    return me == ot1d::Method::Simplex ? "simplex" : "ecdf";
+}
+
+// kind: 0 uniform, 1 ties (integers), 2 heavy tails (Student-t, 2 dof), 3 large offset
+static std::vector<double> sample(std::mt19937& gen, int n, int kind) {
+    std::uniform_real_distribution<> U(-5, 5);
+    std::uniform_int_distribution<> I(0, 4);
+    std::student_t_distribution<> T(2.0);
+    std::normal_distribution<> N(0.0, 1.0);
+    std::vector<double> v(n);
+    for (auto& e : v) {
+        switch (kind) {
+            case 0: e = U(gen); break;
+            case 1: e = I(gen); break;
+            case 2: e = T(gen); break;
+            default: e = 1e6 + N(gen); break;
+        }
+    }
+    return v;
+}
+
+static std::vector<double> random_weights(std::mt19937& gen, int n, bool zeros) {
+    std::uniform_real_distribution<> W(0.1, 2.0);
+    std::vector<double> w(n);
+    for (auto& e : w) e = (zeros && gen() % 5 == 0) ? 0.0 : W(gen);
+    if (zeros) w[gen() % n] = 1.0;  // positive sum
+    return w;
+}
+
+static std::vector<double> normalized(const std::vector<double>& w) {
+    double s = 0;
+    for (double v : w) s += v;
+    std::vector<double> r(w);
+    for (auto& v : r) v /= s;
+    return r;
+}
+
+static void run_ot1d_case(std::mt19937& gen, int n, int m, int kind) {
+    std::vector<double> x = sample(gen, n, kind), y = sample(gen, m, kind);
+    std::vector<double> wa = random_weights(gen, n, gen() % 2), wb = random_weights(gen, m, gen() % 2);
+    std::vector<double> ua(n, 1.0 / n), ub(m, 1.0 / m);
+    std::vector<double> na = normalized(wa), nb = normalized(wb);
+    const double tol = 1e-9;
+
+    for (int wr = 0; wr < 2; wr++) {
+        ot1d::reference R = wr ? ot1d::reference(x.data(), wa.data(), n, 1 + (n % 3))
+                               : ot1d::reference(x.data(), n);
+        CHECK(R.size() == n && R.uniform() == !wr, "reference n=%d: size/uniform", n);
+        CHECK(std::is_sorted(R.sorted_values().begin(), R.sorted_values().end()), "reference not sorted");
+        for (int wq = 0; wq < 2; wq++) {
+            const std::vector<double>& A = wr ? na : ua;
+            const std::vector<double>& B = wq ? nb : ub;
+            double r[3] = {0, reference(x, A, y, B, 1), reference(x, A, y, B, 2)};
+
+            // Sorted copy of the query, for presorted = true
+            std::vector<std::pair<double, double>> q;
+            for (int j = 0; j < m; j++) q.emplace_back(y[j], wb[j]);
+            std::sort(q.begin(), q.end());
+            std::vector<double> ys(m), bs(m);
+            for (int j = 0; j < m; j++) { ys[j] = q[j].first; bs[j] = q[j].second; }
+
+            for (ot1d::Method me : METHODS) {
+                for (int p = 1; p <= 2; p++) {
+                    double z, zs;
+                    if (wq) {
+                        z = p == 1 ? ot1d::w1_reference(R, y.data(), wb.data(), m, me)
+                                   : ot1d::w2_reference(R, y.data(), wb.data(), m, me);
+                        zs = p == 1 ? ot1d::w1_reference(R, ys.data(), bs.data(), m, me, true)
+                                    : ot1d::w2_reference(R, ys.data(), bs.data(), m, me, true);
+                    } else {
+                        z = p == 1 ? ot1d::w1_reference(R, y.data(), m, me)
+                                   : ot1d::w2_reference(R, y.data(), m, me);
+                        zs = p == 1 ? ot1d::w1_reference(R, ys.data(), m, me, true)
+                                    : ot1d::w2_reference(R, ys.data(), m, me, true);
+                    }
+                    CHECK(close(z, r[p], tol), "w%d_reference %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
+                          p, method_name(me), n, m, kind, wr, wq, z, r[p]);
+                    CHECK(close(zs, r[p], tol), "w%d_reference presorted %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
+                          p, method_name(me), n, m, kind, wr, wq, zs, r[p]);
+
+                    // Pairwise functions (normalized weights: equal total masses)
+                    double zp;
+                    if (wr || wq)
+                        zp = p == 1 ? ot1d::w1(x.data(), A.data(), n, y.data(), B.data(), m, me)
+                                    : ot1d::w2(x.data(), A.data(), n, y.data(), B.data(), m, me);
+                    else
+                        zp = p == 1 ? ot1d::w1(x.data(), n, y.data(), m, me)
+                                    : ot1d::w2(x.data(), n, y.data(), m, me);
+                    CHECK(close(zp, r[p], tol), "w%d %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
+                          p, method_name(me), n, m, kind, wr, wq, zp, r[p]);
+                }
+            }
+        }
+    }
+}
+
+static void test_ot1d_batch(std::mt19937& gen) {
+    std::uniform_int_distribution<> S(1, 300);
+    for (int wr = 0; wr < 2; wr++) {
+        int n = 5000;
+        std::vector<double> x = sample(gen, n, 2), wa = random_weights(gen, n, false);
+        ot1d::reference R = wr ? ot1d::reference(x.data(), wa.data(), n) : ot1d::reference(x.data(), n);
+        const int k = 97;
+        std::vector<int64_t> off(1, 0);
+        for (int i = 0; i < k; i++) off.push_back(off.back() + S(gen));
+        std::vector<double> y = sample(gen, (int)off.back(), 2);
+        std::vector<double> b = random_weights(gen, (int)off.back(), true);
+        for (int wq = 0; wq < 2; wq++)
+            for (ot1d::Method me : METHODS)
+                for (int p = 1; p <= 2; p++)
+                    for (int t : {1, 4, 200}) {
+                        std::vector<double> out(k, -1.0);
+                        const double* bb = wq ? b.data() : nullptr;
+                        if (p == 1) ot1d::w1_batch(R, y.data(), bb, off.data(), k, out.data(), me, t);
+                        else ot1d::w2_batch(R, y.data(), bb, off.data(), k, out.data(), me, t);
+                        bool same = true;
+                        for (int i = 0; i < k; i++) {
+                            const double* yi = y.data() + off[i];
+                            int64_t mi = off[i + 1] - off[i];
+                            double z = wq ? (p == 1 ? ot1d::w1_reference(R, yi, bb + off[i], mi, me)
+                                                    : ot1d::w2_reference(R, yi, bb + off[i], mi, me))
+                                          : (p == 1 ? ot1d::w1_reference(R, yi, mi, me)
+                                                    : ot1d::w2_reference(R, yi, mi, me));
+                            same = same && (z == out[i]);
+                        }
+                        CHECK(same, "w%d_batch %s wr=%d wq=%d threads=%d differs from w%d_reference",
+                              p, method_name(me), wr, wq, t, p);
+                    }
+    }
+    // Same layout without weights pointer overload
+    std::vector<double> x = sample(gen, 100, 0), y = sample(gen, 30, 0), out(3);
+    ot1d::reference R(x.data(), 100);
+    int64_t off[4] = {0, 10, 20, 30};
+    ot1d::w1_batch(R, y.data(), off, 3, out.data());
+    CHECK(out[1] == ot1d::w1_reference(R, y.data() + 10, 10), "w1_batch overload without weights");
+}
+
+// Many threads querying one reference at the same time (run under TSan by make sanitize).
+static void test_ot1d_concurrent(std::mt19937& gen) {
+    int n = 20000;
+    std::vector<double> x = sample(gen, n, 0);
+    ot1d::reference R(x.data(), n);
+    std::vector<std::vector<double>> qs;
+    std::vector<double> expected;
+    for (int i = 0; i < 64; i++) {
+        qs.push_back(sample(gen, 100 + i * 7, 0));
+        expected.push_back(ot1d::w1_reference(R, qs.back().data(), (int64_t)qs.back().size()) +
+                           ot1d::w2_reference(R, qs.back().data(), (int64_t)qs.back().size()));
+    }
+    std::vector<int> ok(8, 1);
+    std::vector<std::thread> pool;
+    for (int t = 0; t < 8; t++)
+        pool.emplace_back([&, t]() {
+            for (int rep = 0; rep < 4; rep++)
+                for (size_t i = t; i < qs.size(); i += 3) {
+                    double z = ot1d::w1_reference(R, qs[i].data(), (int64_t)qs[i].size()) +
+                               ot1d::w2_reference(R, qs[i].data(), (int64_t)qs[i].size());
+                    if (z != expected[i]) ok[t] = 0;
+                }
+        });
+    for (auto& th : pool) th.join();
+    for (int t = 0; t < 8; t++) CHECK(ok[t], "concurrent queries: thread %d got a different value", t);
+}
+
+// Uniform weights: north-west corner in long double with exact integer masses
+// (x_i holds m units, y_j holds n units), the ground truth of the precision test.
+static double merge_ld(std::vector<double> x, std::vector<double> y, int p) {
+    std::sort(x.begin(), x.end());
+    std::sort(y.begin(), y.end());
+    int64_t n = x.size(), m = y.size(), i = 0, j = 0, ri = m, rj = n;
+    long double tot = 0.0L;
+    while (i < n && j < m) {
+        int64_t t = std::min(ri, rj);
+        long double d = std::fabs((long double)x[i] - (long double)y[j]);
+        tot += (long double)t * (p == 1 ? d : d * d);
+        ri -= t;
+        rj -= t;
+        if (ri == 0) { i++; ri = m; }
+        if (rj == 0) { j++; rj = n; }
+    }
+    tot /= (long double)n * (long double)m;
+    return (double)(p == 1 ? tot : std::sqrt(tot));
+}
+
+// Precision on many ties (n = 10^6): fails if the compensated prefix sums are
+// lost, for instance when -ffast-math reassociates them (rules 3 and 4).
+// Measured: about 1e-14 with compensation, 2e-11 to 9e-10 without.
+static void test_ot1d_precision() {
+    std::mt19937 gen(5);
+    std::normal_distribution<> N(40.0, 12.0);
+    const int n = 1000000, m = 10000;
+    std::vector<double> x(n), y(m);
+    for (auto& v : x) v = std::floor(N(gen));
+    for (auto& v : y) v = std::floor(N(gen) + 0.3);
+    ot1d::reference R(x.data(), n);
+    for (int p = 1; p <= 2; p++) {
+        double r = merge_ld(x, y, p);
+        double z = p == 1 ? ot1d::w1_reference(R, y.data(), m) : ot1d::w2_reference(R, y.data(), m);
+        double err = std::fabs(z - r) / r;
+        printf("Precision on ties, n=%d m=%d: W%d relative error %.2e\n", n, m, p, err);
+        CHECK(err < 1e-12, "precision on ties W%d: relative error %.3g (compensation lost?)", p, err);
+    }
+}
+
+static void test_ot1d_invalid() {
+    double x[3] = {1, 2, 3}, bad[3] = {1, NAN, 3}, neg[3] = {1, -1, 3}, zero[3] = {0, 0, 0};
+    int thrown = 0;
+    auto expect = [&](std::function<void()> f) {
+        try { f(); } catch (const std::invalid_argument&) { thrown++; return; }
+        CHECK(false, "invalid input #%d did not throw std::invalid_argument", thrown);
+    };
+    expect([&] { ot1d::reference R(x, 0); });
+    expect([&] { ot1d::reference R(bad, 3); });
+    expect([&] { ot1d::reference R(x, neg, 3); });
+    expect([&] { ot1d::reference R(x, zero, 3); });
+    ot1d::reference R(x, 3);
+    expect([&] { ot1d::w1_reference(R, x, 0); });
+    expect([&] { ot1d::w2_reference(R, bad, 3); });
+    expect([&] { ot1d::w1_reference(R, x, neg, 3); });
+    expect([&] { ot1d::w1(x, 3, bad, 3); });
+    expect([&] { ot1d::w2(x, 3, bad, 3, ot1d::Method::Ecdf); });
+    int64_t off[3] = {0, 2, 2};
+    double out[2];
+    expect([&] { ot1d::w1_batch(R, x, off, 2, out); });
+    CHECK(thrown == 10, "invalid input: %d of 10 cases threw", thrown);
+}
+
+static void test_ot1d() {
+    printf("Testing namespace ot1d (reference, ecdf and simplex)\n");
+    std::mt19937 gen(2026);
+    const int sizes[] = {1, 2, 3, 5, 7, 64, 257, 1000};
+    for (int n : sizes)
+        for (int m : sizes)
+            run_ot1d_case(gen, n, m, (n + m) % 4);
+    const int large[][2] = {{100000, 777}, {2000, 100000}, {30001, 30001}, {12345, 99}};
+    for (auto& s : large)
+        for (int kind = 0; kind < 4; kind++)
+            run_ot1d_case(gen, s[0], s[1], kind);
+    std::uniform_int_distribution<> S(1, 40);
+    for (int r = 0; r < 300; r++)
+        run_ot1d_case(gen, S(gen), S(gen), r % 4);
+    test_ot1d_batch(gen);
+    test_ot1d_concurrent(gen);
+    test_ot1d_invalid();
+    test_ot1d_precision();
+}
+
 int main() {
     std::mt19937 gen(2021);
 
@@ -301,6 +558,8 @@ int main() {
     std::uniform_int_distribution<> S(1, 40);
     for (int r = 0; r < 2000; r++)
         run_case(gen, S(gen), S(gen), r % 2, 1 + (r % 3) * 2);
+
+    test_ot1d();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

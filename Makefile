@@ -58,6 +58,8 @@ sanitize: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp
 	g++ -O1 -g -Wall -Wextra -std=c++11 -pthread ${SIMD_DEFS} -fsanitize=address,undefined -fno-omit-frame-pointer -c tests/test_ot1d.cpp -o ${LIB}/test_ot1d_asan.o -I${INCLUDE}
 	g++ -pthread -fsanitize=address,undefined ${LIB}/test_ot1d_asan.o ${LIB}/ot1d_avx2_asan.o ${LIB}/ot1d_avx512_asan.o -o ${BIN}/test_ot1d_simd_asan
 	./bin/test_ot1d_simd_asan
+	g++ -O1 -g -Wall -std=c++11 -pthread -fsanitize=thread tests/test_ot1d.cpp -o ${BIN}/test_ot1d_tsan -I${INCLUDE}
+	./bin/test_ot1d_tsan
 
 # Build and Test Python wrapper
 buildpython:
