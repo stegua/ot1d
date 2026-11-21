@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (unreleased)
+## 0.5.0 (2026-11-21)
 
 ### New
 * A second exact algorithm, `method='ecdf'`: the quantile form of 1D optimal transport, with the
