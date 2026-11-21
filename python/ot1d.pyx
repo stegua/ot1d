@@ -85,6 +85,13 @@ def _pair(int p, X, Y, A, B, method, bool sorting, int threads):
     Y = _sample(Y, 'Y')
     A = _weights(A, len(X), 'A')
     B = _weights(B, len(Y), 'B')
+    sa = sb = None
+    if A is not None and B is not None:
+        sa, sb = A.sum(), B.sum()
+        if me == Method.Ecdf and sa > 0 and sb > 0 and not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
+            raise ValueError("A and B have different total mass ({} != {}): method='ecdf' compares "
+                             "probability measures; use method='simplex' for a partial "
+                             "transport".format(sa, sb))
 
     cdef const double[::1] Xmv = X
     cdef const double[::1] Ymv = Y
@@ -105,15 +112,12 @@ def _pair(int p, X, Y, A, B, method, bool sorting, int threads):
             z = c_w1(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
         else:
             z = c_w2(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
-    # One-sided weights, and different total masses with 'ecdf' (ValueError), are
-    # handled in C++; only the warning of 'simplex' is raised here, once C++ has
-    # validated the weights.
-    if me == Method.Simplex and A is not None and B is not None:
-        sa, sb = A.sum(), B.sum()
+    # The warning of 'simplex' comes after the call, once C++ has validated the weights
+    if me == Method.Simplex and sa is not None:
         if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
             warnings.warn("A and B have different total mass ({} != {}): only the smaller mass "
                           "is transported, and the returned value is partial".format(sa, sb),
-                          RuntimeWarning, stacklevel=3)
+                          RuntimeWarning, stacklevel=1)
     return z
 
 
@@ -163,7 +167,7 @@ def w2_plan(X, Y, A=None, B=None, sorting=True, threads=1):
 cdef class reference:
     """A sample X (optional weights A) prepared once for many exact W1 / W2 queries.
 
-    ref = reference(X, A=None, threads=1) copies and sorts X (threads: threads of
+    ref = reference(X, A=None, threads=1, sorting=True) copies and sorts X (threads: threads of
     the parallel sort) and stores the prefix sums used by method='ecdf': 24 bytes
     per point (32 with weights). Query it with w1_reference, w2_reference,
     w1_batch and w2_batch; queries are thread safe and release the GIL.
@@ -173,11 +177,14 @@ cdef class reference:
     eps * Var(X), so a W2 below about 1e-7 * std(X) (for instance, a query equal
     to the reference) is returned as about 1e-8 * std(X) instead of 0.
 
+    sorting=False: X (with A) is already sorted ascending, and is only copied
+    (ValueError if it is not sorted).
+
     Picklable (the reference is rebuilt from its sorted values and weights).
     """
     cdef unique_ptr[c_reference] _ref
 
-    def __cinit__(self, X, A=None, int threads=1):
+    def __cinit__(self, X, A=None, int threads=1, bool sorting=True):
         X = _sample(X, 'X')
         A = _weights(A, len(X), 'A')
         cdef const double[::1] Xmv = X
@@ -186,11 +193,11 @@ cdef class reference:
         cdef c_reference* r
         if A is None:
             with nogil:
-                r = new c_reference(&Xmv[0], n, threads)
+                r = new c_reference(&Xmv[0], n, threads, not sorting)
         else:
             Amv = A
             with nogil:
-                r = new c_reference(&Xmv[0], &Amv[0], n, threads)
+                r = new c_reference(&Xmv[0], &Amv[0], n, threads, not sorting)
         self._ref.reset(r)
 
     def __len__(self):
@@ -237,7 +244,7 @@ cdef class reference:
         return out
 
     def __reduce__(self):
-        return (reference, (self.sorted_values, self.weights))
+        return (reference, (self.sorted_values, self.weights, 1, False))
 
     def __repr__(self):
         return "ot1d.reference(n={}, mean={!r}, {})".format(
@@ -292,10 +299,11 @@ def _chunks(Ys, name):
         k, c = Ys.shape
         return (np.ascontiguousarray(Ys, dtype=float).reshape(-1),
                 np.arange(k + 1, dtype=np.int64) * c, [c] * k)
-    parts = [np.ascontiguousarray(y, dtype=float) for y in Ys]
+    parts = [np.asarray(y, dtype=float) for y in Ys]  # asarray keeps scalars 0-dimensional
     for y in parts:
         if y.ndim != 1:
-            raise ValueError("every sample of {} must be one-dimensional".format(name))
+            raise ValueError("{} must be a list of one-dimensional samples, or a 2D array with "
+                             "one sample per row".format(name))
     lengths = [len(y) for y in parts]
     offsets = np.zeros(len(parts) + 1, dtype=np.int64)
     np.cumsum(lengths, out=offsets[1:])
@@ -392,7 +400,7 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=1, plan=False):
         if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
             warnings.warn("A and B have different total mass ({} != {}): only the smaller mass "
                           "is transported, and the returned value and plan are partial".format(sa, sb),
-                          RuntimeWarning, stacklevel=2)
+                          RuntimeWarning, stacklevel=1)
 
     if plan:
         # Compute and return an optimal transportation plan
@@ -498,53 +506,55 @@ def parasort(X, A=None, int threads=1):
 #
 # The GIL is released around every call into C++: the computation
 # touches only the raw buffers of the numpy arrays (kept alive by the
-# memoryviews), so other Python threads can run concurrently.
+# memoryviews), so other Python threads can run concurrently. The samples and
+# weights are never modified (the C++ functions copy them), so read-only arrays
+# are accepted: the casts only remove the const of the memoryviews.
 #--------------------------------------------------------------
-cdef double OT_1Da(double[::1] Xmv, double[::1] Ymv, bool sorting, int threads):
+cdef double OT_1Da(const double[::1] Xmv, const double[::1] Ymv, bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
     cdef double z
     with nogil:
         if m == n:
-            z = OT1Da0(n, &Xmv[0], &Ymv[0], sorting, threads)
+            z = OT1Da0(n, <double*>&Xmv[0], <double*>&Ymv[0], sorting, threads)
         else:
-            z = OT1Da(m, n, &Xmv[0], &Ymv[0], sorting, threads)
+            z = OT1Da(m, n, <double*>&Xmv[0], <double*>&Ymv[0], sorting, threads)
     return z
 
 
-cdef double OT_1Db(double[::1] Xmv, double[::1] Ymv, bool sorting, int threads):
+cdef double OT_1Db(const double[::1] Xmv, const double[::1] Ymv, bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
     cdef double z
     with nogil:
         if m == n:
-            z = OT1Db0(n, &Xmv[0], &Ymv[0], sorting, threads)
+            z = OT1Db0(n, <double*>&Xmv[0], <double*>&Ymv[0], sorting, threads)
         else:
-            z = OT1Db(m, n, &Xmv[0], &Ymv[0], sorting, threads)
+            z = OT1Db(m, n, <double*>&Xmv[0], <double*>&Ymv[0], sorting, threads)
     return z
 
 
-cdef double OT_1Dc(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+cdef double OT_1Dc(const double[::1] Xmv, const double[::1] Ymv, const double[::1] Amv, const double[::1] Bmv,
                    bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
     cdef double z
     with nogil:
-        z = OT1Dc(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], sorting, threads)
+        z = OT1Dc(m, n, <double*>&Xmv[0], <double*>&Ymv[0], <double*>&Amv[0], <double*>&Bmv[0], sorting, threads)
     return z
 
 
-cdef double OT_1Dd(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+cdef double OT_1Dd(const double[::1] Xmv, const double[::1] Ymv, const double[::1] Amv, const double[::1] Bmv,
                    bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
     cdef double z
     with nogil:
-        z = OT1Dd(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], sorting, threads)
+        z = OT1Dd(m, n, <double*>&Xmv[0], <double*>&Ymv[0], <double*>&Amv[0], <double*>&Bmv[0], sorting, threads)
     return z
 
 
-cdef (double, int) OT_1Da_plan(double[::1] Xmv, double[::1] Ymv, int[::1] Tmv, double[::1] Wmv,
+cdef (double, int) OT_1Da_plan(const double[::1] Xmv, const double[::1] Ymv, int[::1] Tmv, double[::1] Wmv,
                                bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
@@ -552,13 +562,13 @@ cdef (double, int) OT_1Da_plan(double[::1] Xmv, double[::1] Ymv, int[::1] Tmv, d
     cdef double z
     with nogil:
         if m == n:
-            z = OT1Da0_withplan(n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
+            z = OT1Da0_withplan(n, <double*>&Xmv[0], <double*>&Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
         else:
-            z = OT1Da_withplan(m, n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
+            z = OT1Da_withplan(m, n, <double*>&Xmv[0], <double*>&Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
     return z, Smap
 
 
-cdef (double, int) OT_1Db_plan(double[::1] Xmv, double[::1] Ymv, int[::1] Tmv, double[::1] Wmv,
+cdef (double, int) OT_1Db_plan(const double[::1] Xmv, const double[::1] Ymv, int[::1] Tmv, double[::1] Wmv,
                                bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
@@ -566,31 +576,31 @@ cdef (double, int) OT_1Db_plan(double[::1] Xmv, double[::1] Ymv, int[::1] Tmv, d
     cdef double z
     with nogil:
         if m == n:
-            z = OT1Db0_withplan(n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
+            z = OT1Db0_withplan(n, <double*>&Xmv[0], <double*>&Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
         else:
-            z = OT1Db_withplan(m, n, &Xmv[0], &Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
+            z = OT1Db_withplan(m, n, <double*>&Xmv[0], <double*>&Ymv[0], &Tmv[0], &Wmv[0], &Smap, sorting, threads)
     return z, Smap
 
 
-cdef (double, int) OT_1Dc_plan(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+cdef (double, int) OT_1Dc_plan(const double[::1] Xmv, const double[::1] Ymv, const double[::1] Amv, const double[::1] Bmv,
                                int[::1] Tmv, double[::1] Wmv, bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
     cdef int Smap = 0
     cdef double z
     with nogil:
-        z = OT1Dc_withplan(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], &Tmv[0], &Wmv[0], &Smap,
+        z = OT1Dc_withplan(m, n, <double*>&Xmv[0], <double*>&Ymv[0], <double*>&Amv[0], <double*>&Bmv[0], &Tmv[0], &Wmv[0], &Smap,
                            sorting, threads)
     return z, Smap
 
 
-cdef (double, int) OT_1Dd_plan(double[::1] Xmv, double[::1] Ymv, double[::1] Amv, double[::1] Bmv,
+cdef (double, int) OT_1Dd_plan(const double[::1] Xmv, const double[::1] Ymv, const double[::1] Amv, const double[::1] Bmv,
                                int[::1] Tmv, double[::1] Wmv, bool sorting, int threads):
     cdef int m = Xmv.shape[0]
     cdef int n = Ymv.shape[0]
     cdef int Smap = 0
     cdef double z
     with nogil:
-        z = OT1Dd_withplan(m, n, &Xmv[0], &Ymv[0], &Amv[0], &Bmv[0], &Tmv[0], &Wmv[0], &Smap,
+        z = OT1Dd_withplan(m, n, <double*>&Xmv[0], <double*>&Ymv[0], <double*>&Amv[0], <double*>&Bmv[0], &Tmv[0], &Wmv[0], &Smap,
                            sorting, threads)
     return z, Smap

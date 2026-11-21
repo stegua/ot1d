@@ -297,3 +297,53 @@ def test_gil_released():
     t.join()
     assert elapsed > 0.05, "batch too fast to test the GIL"
     assert len(ticks) - n0 > 5, "the ticker thread did not run: the GIL was not released"
+
+
+@native_only
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("method", ["ecdf", "simplex"])
+def test_presorted_reference(method, weighted):
+    """reference(..., sorting=False) on sorted data, and w1/w2 with sorting=False."""
+    r = np.random.default_rng(13)
+    x, y = r.normal(size=5000), np.sort(r.normal(0.2, 1.1, size=700))
+    a = r.random(5000) if weighted else None
+    R = ot1d.reference(x, a)
+    Rs = ot1d.reference(R.sorted_values, R.weights, sorting=False)
+    for wref, wpair in ((ot1d.w1_reference, ot1d.w1), (ot1d.w2_reference, ot1d.w2)):
+        z = wref(R, y, method=method)
+        assert rel(wref(Rs, y, method=method), z) < 1e-12
+        assert rel(wpair(R.sorted_values, y, R.weights, method=method, sorting=False), z) < 5e-11
+    with pytest.raises(ValueError):
+        ot1d.reference(x, a, sorting=False)  # not sorted
+    with pytest.raises(ValueError):
+        ot1d.w1(x, y, method="ecdf", sorting=False)
+
+
+@native_only
+@pytest.mark.parametrize("method", ["ecdf", "simplex"])
+def test_overflow_is_inf(method):
+    """Squares that overflow give +inf (IEEE 754), never a finite distance."""
+    r = np.random.default_rng(14)
+    x, y = r.normal(size=1000), r.normal(size=50)
+    x[:3] = 1e200
+    assert ot1d.w2(x, y, method=method) == np.inf
+    assert ot1d.w2(y, x, method=method) == np.inf
+    assert ot1d.w2_reference(ot1d.reference(x), y, method=method) == np.inf
+    assert np.isfinite(ot1d.w1(x, y, method=method))
+
+
+@native_only
+def test_batch_rejects_single_sample():
+    r = np.random.default_rng(15)
+    R = ot1d.reference(r.normal(size=100))
+    with pytest.raises(ValueError):
+        ot1d.w1_batch(R, r.normal(size=50))  # one 1D sample is not a list of samples
+
+
+@native_only
+def test_readonly_inputs():
+    r = np.random.default_rng(16)
+    y = r.normal(size=40)
+    xs = ot1d.reference(r.normal(size=300)).sorted_values  # read-only array
+    z = ot1d.w1(xs, y)
+    assert ot1d.OT1D(xs, y) == z and ot1d.w1_plan(xs, y)[0] == z

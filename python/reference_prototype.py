@@ -6,7 +6,8 @@ quantile form of 1D optimal transport
     W_p^p = int_0^1 |F^{-1}(u) - G^{-1}(u)|^p du ,
 
 instead of the north-west-corner merge. The reference is prepared once; each query then costs
-O(m log m) to sort the chunk plus O(m) (W2) or O(m log n) (W1) — no pass over the n reference points.
+O(m log m) to sort the chunk plus O(m) (W2) or O(m log n) (W1), with no pass over the n reference
+points.
 
 Fit (once): sort r_1 <= ... <= r_n; c = mean(r); UNSCALED prefix sums P1[i] = sum_{l<i} z_l,
   P2[i] = sum_{l<i} z_l^2 of z = r - c (no division by n).

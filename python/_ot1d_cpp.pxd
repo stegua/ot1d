@@ -16,7 +16,7 @@ from libc.stdint cimport int64_t
 
 # All functions are pure C++ (no Python API), so they can run without the GIL.
 # `except +` turns C++ exceptions into Python exceptions (std::invalid_argument
-# into ValueError, std::length_error into ValueError, std::bad_alloc into MemoryError).
+# into ValueError, std::bad_alloc into MemoryError, the others into RuntimeError).
 cdef extern from "OT1D.hpp" nogil:
 	cdef double OT1Da0(int, double*, double*, bool, int) except +
 	cdef double OT1Db0(int, double*, double*, bool, int) except +
@@ -47,8 +47,8 @@ cdef extern from "OT1D.hpp" namespace "ot1d" nogil:
 		Ecdf
 
 	cdef cppclass c_reference "ot1d::reference":
-		c_reference(const double*, int64_t, int) except +
-		c_reference(const double*, const double*, int64_t, int) except +
+		c_reference(const double*, int64_t, int, bool) except +
+		c_reference(const double*, const double*, int64_t, int, bool) except +
 		int64_t size()
 		double mean()
 		bool uniform()

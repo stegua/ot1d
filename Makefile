@@ -88,4 +88,4 @@ clean::
 	rm -f *~
 	rm -f ${SRC}/*~ ${INCLUDE}/*~
 	rm -rf build/*
-	rm python/OT1D.cpp python/OT1D.cp*.so python/OT1D.cp*.pyd
+	rm -f python/ot1d.cpp python/ot1d.cp*.so python/ot1d.cp*.pyd

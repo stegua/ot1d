@@ -68,6 +68,7 @@
 #include <atomic>
 #include <climits>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -328,7 +329,11 @@ inline void sort_pairs(int64_t n, double* key, double* val, int threads, std::ve
 #endif
     tmp.resize((size_t)n);
     for (int64_t i = 0; i < n; i++) tmp[i] = dbl_pair_t(key[i], val[i]);
-    sort_items(tmp, [](const dbl_pair_t& v, const dbl_pair_t& w) { return v.first < w.first; }, threads);
+    auto cmp = [](const dbl_pair_t& v, const dbl_pair_t& w) { return v.first < w.first; };
+    if (n <= INT_MAX)
+        sort_items(tmp, cmp, threads);
+    else                                   // sort_items and parasort use int sizes
+        pdqsort(tmp.begin(), tmp.end(), cmp);
     for (int64_t i = 0; i < n; i++) {
         key[i] = tmp[i].first;
         val[i] = tmp[i].second;
@@ -622,8 +627,14 @@ inline double OT1Dd_withplan(int m, int n, double* x, double* y, double* a, doub
 //   - Method::Ecdf and every function on a reference treat both measures as
 //     probability measures (the weights are normalized). Method::Simplex on two
 //     samples keeps the legacy behaviour (partial transport of the smaller mass).
+//   - w1 and w2 accept a == nullptr or b == nullptr: that sample has uniform
+//     weights, with the same total mass as the other one. With Method::Ecdf,
+//     weights a and b whose total masses differ (relative difference above
+//     1e-9) throw std::invalid_argument.
 //   - Invalid input (empty sample, NaN or inf, negative weights, zero total
-//     weight) throws std::invalid_argument.
+//     weight, more than 2^31-1 points with Method::Simplex) throws
+//     std::invalid_argument.
+//   - A distance that overflows (for instance, the squares in W2) is +inf.
 //
 // Numerical precision of Method::Ecdf (the rules of the v0.5.0 plan):
 //   - with uniform weights, the quantile positions are exact integers in units
@@ -726,20 +737,32 @@ inline void check_sample(const double* x, int64_t n, const char* what) {
 }
 
 // Checks x, copies it to r and returns its compensated sum: one pass over x.
-OT1D_PRECISE_ATTR inline double copy_checked_sum(const double* x, int64_t n, double* r, const char* what) {
+// presorted: also checks that x is sorted ascending.
+OT1D_PRECISE_ATTR inline double copy_checked_sum(const double* x, int64_t n, double* r, bool presorted,
+                                                 const char* what) {
     OT1D_PRECISE_SCOPE
-    double s = 0.0, e = 0.0;
+    double s = 0.0, e = 0.0, prev = x[0];
+    bool sorted = true;
     for (int64_t i = 0; i < n; i++) {
         if (!is_finite(x[i])) throw_not_finite(what);
-        r[i] = x[i];
+        sorted = sorted && !(x[i] < prev);
+        prev = r[i] = x[i];
         OT1D_NEUMAIER(s, e, x[i]);
     }
+    if (presorted && !sorted)
+        throw std::invalid_argument(std::string(what) + ": the sample is not sorted ascending");
     return s + e;
+}
+
+// The inputs are finite, so a result that is not finite comes from an overflow
+// (for instance, of the squares): as in IEEE 754 arithmetic, it is +inf.
+inline double overflow_to_inf(double z) {
+    return is_finite(z) ? z : std::numeric_limits<double>::infinity();
 }
 
 inline int to_int(int64_t n) {
     if (n > INT_MAX)
-        throw std::length_error("ot1d: Method::Simplex supports at most 2^31-1 points per sample");
+        throw std::invalid_argument("ot1d: Method::Simplex supports at most 2^31-1 points per sample");
     return (int)n;
 }
 
@@ -814,10 +837,16 @@ public:
     typedef std::vector<double, detail::uninit_alloc<double>> buffer;
 
     // Copies and sorts x. threads: threads of the parallel sort.
-    reference(const double* x, int64_t n, int threads = 1) { fit(x, nullptr, n, threads); }
+    // presorted == true: x is already sorted ascending (checked), and is only copied.
+    reference(const double* x, int64_t n, int threads = 1, bool presorted = false) {
+        fit(x, nullptr, n, threads, presorted);
+    }
 
     // Weighted reference: w nonnegative with positive sum (normalized to 1).
-    reference(const double* x, const double* w, int64_t n, int threads = 1) { fit(x, w, n, threads); }
+    // presorted == true: x (with w) is already sorted ascending by x.
+    reference(const double* x, const double* w, int64_t n, int threads = 1, bool presorted = false) {
+        fit(x, w, n, threads, presorted);
+    }
 
     int64_t size() const { return (int64_t)r_.size(); }
     double mean() const { return c_; }
@@ -843,31 +872,36 @@ public:
     const double* P1() const { return P1_.data(); }  // unscaled sums if uniform, else scaled by the weights
     const double* P2() const { return P2_.data(); }
     const double* U() const { return U_.data(); }    // cumulative weights (empty if uniform)
+    double total_weight() const { return wsum_; }    // sum of w before the normalization (1 if uniform)
 
 private:
     buffer r_, P1_, P2_, U_;
-    double c_ = 0.0;
+    double c_ = 0.0, wsum_ = 1.0;
     bool uniform_ = true;
 
-    void fit(const double* x, const double* w, int64_t n, int threads) {
+    void fit(const double* x, const double* w, int64_t n, int threads, bool presorted) {
         detail::check_size(n, "reference");
         uniform_ = (w == nullptr);
         r_.resize((size_t)n);
-        double sum = detail::copy_checked_sum(x, n, r_.data(), "reference");
+        double sum = detail::copy_checked_sum(x, n, r_.data(), presorted, "reference");
         P1_.resize((size_t)n + 1);
         P2_.resize((size_t)n + 1);
-        if (uniform_) {
-            ot1d_detail::sort_values(n, r_.data(), threads);
+        if (w == nullptr) {
+            if (!presorted) ot1d_detail::sort_values(n, r_.data(), threads);
             c_ = sum / (double)n;
             detail::fit_uniform(r_.data(), n, c_, P1_.data(), P2_.data());
             return;
         }
-        double wsum = detail::check_weights(w, n, "reference");
-        std::vector<double> ws(w, w + n);
-        std::vector<dbl_pair_t> tmp;
-        ot1d_detail::sort_pairs(n, r_.data(), ws.data(), threads, tmp);
+        wsum_ = detail::check_weights(w, n, "reference");
+        std::vector<double> ws;
+        if (!presorted) {
+            ws.assign(w, w + n);
+            std::vector<dbl_pair_t> tmp;
+            ot1d_detail::sort_pairs(n, r_.data(), ws.data(), threads, tmp);
+            w = ws.data();
+        }
         U_.resize((size_t)n + 1);
-        detail::fit_weighted(r_.data(), ws.data(), n, wsum, c_, U_.data(), P1_.data(), P2_.data());
+        detail::fit_weighted(r_.data(), w, n, wsum_, c_, U_.data(), P1_.data(), P2_.data());
     }
 };
 
@@ -933,7 +967,7 @@ OT1D_PRECISE_ATTR double ecdf_uniform(const reference& R, const double* y, int64
     }
     double z = (S + E) / (nd * md);
     if (P == 1) return z;
-    return std::sqrt(z > 0.0 ? z : 0.0);
+    return std::sqrt(z < 0.0 ? 0.0 : z);  // rounding below 0 only: NaN (overflow) is kept for `overflow_to_inf`
 }
 
 // ------------------------------------------------- ecdf, weights on either side
@@ -942,37 +976,40 @@ OT1D_PRECISE_ATTR double ecdf_uniform(const reference& R, const double* y, int64
 // cursor for nondecreasing u (weighted reference only).
 struct ecdf_eval {
     const double *r, *P1, *P2, *U;
-    double c, nd;
+    double c, nd, scale;   // scale: 1/n for the unscaled prefix sums of a uniform reference
     int64_t n;
     bool uniform;
     int64_t cur = 0;
 
     explicit ecdf_eval(const reference& R)
         : r(R.r()), P1(R.P1()), P2(R.P2()), U(R.U()), c(R.mean()), nd((double)R.size()),
-          n(R.size()), uniform(R.uniform()) {}
+          scale(R.uniform() ? 1.0 / (double)R.size() : 1.0), n(R.size()), uniform(R.uniform()) {}
 
-    // F(y) for k = #{r_i <= y}
+    // F(y) and Q1(F(y)) for k = #{r_i <= y}
     double cdf(int64_t k) const { return uniform ? (double)k / nd : U[k]; }
+    double q1_at(int64_t k) const { return P1[k] * scale; }
 
+    // Returns the index i of the reference point that owns u (U[i] <= u < U[i+1],
+    // i <= n-1); inside: u > U[i], that is, r_i has mass below u.
     template <int P>
-    void at(double u, double& q1, double& q2) {
+    int64_t at(double u, double& q1, double& q2, bool& inside) {
         int64_t i;
-        double scale, ui;
-        if (uniform) {          // unscaled prefix sums
+        double ui;
+        if (uniform) {
             i = (int64_t)(u * nd);
             if (i > n - 1) i = n - 1;
             if (i < 0) i = 0;
             ui = (double)i / nd;
-            scale = 1.0 / nd;
         } else {
-            cur = gallop_upper(U, n, cur + 1, u) - 1;  // U[cur] <= u < U[cur+1], cur <= n-1
+            cur = gallop_upper(U, n, cur + 1, u) - 1;
             i = cur;
             ui = U[i];
-            scale = 1.0;
         }
         double z = r[i] - c, d = u - ui;
+        inside = d > 0.0;
         q1 = P1[i] * scale + d * z;
         if (P == 2) q2 = P2[i] * scale + d * z * z;
+        return i;
     }
 };
 
@@ -982,11 +1019,13 @@ OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, cons
                                        int64_t m) {
     OT1D_PRECISE_SCOPE
     ecdf_eval ev(R);
+    const double* r = ev.r;
     const double md = (double)m;
 
     double a = 0.0, q1a = 0.0, q2a = 0.0;
+    bool inside;
+    int64_t ia = ev.at<P>(a, q1a, q2a, inside);   // reference point that owns a
     double cs = 0.0, ce = 0.0;   // compensated cumulative query weight
-    int64_t k = 0;
     double S = 0.0, E = 0.0;
 
     for (int64_t j = 0; j < m; j++) {
@@ -1003,24 +1042,32 @@ OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, cons
         }
         const double yc = y[j] - ev.c;
         double t, q1b, q2b = 0.0;
+        const int64_t ib = ev.at<P>(bpos, q1b, q2b, inside);
         if (P == 2) {
-            ev.at<P>(bpos, q1b, q2b);
             t = (q2b - q2a) - 2.0 * yc * (q1b - q1a) + yc * yc * (bpos - a);
         } else {
-            k = gallop_upper(ev.r, ev.n, k, y[j]);
-            double F = ev.cdf(k);
-            double sp = F < a ? a : (F > bpos ? bpos : F);
-            double q1s, dummy;
-            ev.at<P>(sp, q1s, dummy);
-            ev.at<P>(bpos, q1b, q2b);
-            t = yc * (sp - a) - (q1s - q1a) + (q1b - q1s) - yc * (bpos - sp);
+            // As in ecdf_uniform: F^-1 - y_j changes sign at s = clip(F(y_j), a, bpos).
+            // The reference points with mass in [a, bpos] are r[ia .. hi]: s = a if
+            // r[ia] > y_j, s = bpos if r[hi] <= y_j; only in between is
+            // k = #{r_i <= y_j} searched, in r[ia+1 .. hi), and then s = F(y_j) = U[k].
+            const double v = y[j];
+            const int64_t hi = inside ? ib : ib - 1;
+            if (r[ia] > v) {                                // s = a
+                t = (q1b - q1a) - yc * (bpos - a);
+            } else if (hi <= ia || r[hi] <= v) {            // s = bpos
+                t = yc * (bpos - a) - (q1b - q1a);
+            } else {
+                const int64_t k = std::upper_bound(r + ia + 1, r + hi, v) - r;
+                const double sp = ev.cdf(k), q1s = ev.q1_at(k);
+                t = yc * (sp - a) - (q1s - q1a) + (q1b - q1s) - yc * (bpos - sp);
+            }
         }
         OT1D_NEUMAIER(S, E, t);
-        a = bpos; q1a = q1b; q2a = q2b;
+        a = bpos; q1a = q1b; q2a = q2b; ia = ib;
     }
     double z = S + E;
     if (P == 1) return z;
-    return std::sqrt(z > 0.0 ? z : 0.0);
+    return std::sqrt(z < 0.0 ? 0.0 : z);  // rounding below 0 only: NaN (overflow) is kept for `overflow_to_inf`
 }
 
 // ------------------------------------------------- simplex on a reference
@@ -1053,11 +1100,10 @@ double simplex_reference(const reference& R, const double* y, const double* b, d
 
 // ------------------------------------------------- dispatch
 
+// Query already validated; bsum: sum of the weights b (unused if b == nullptr).
 template <int P>
-double query(const reference& R, const double* y, const double* b, int64_t m,
-             Method method, bool presorted, scratch& s) {
-    check_sample(y, m, "query");
-    const double bsum = (b != nullptr) ? check_weights(b, m, "query") : 1.0;
+double run(const reference& R, const double* y, const double* b, double bsum, int64_t m,
+           Method method, bool presorted, scratch& s) {
     if (!presorted) {
         s.y.assign(y, y + m);
         if (b != nullptr) {
@@ -1069,9 +1115,19 @@ double query(const reference& R, const double* y, const double* b, int64_t m,
         }
         y = s.y.data();
     }
-    if (method == Method::Simplex) return simplex_reference<P>(R, y, b, bsum, m, s);
-    if (R.uniform() && b == nullptr) return ecdf_uniform<P>(R, y, m);
-    return ecdf_weighted<P>(R, y, b, bsum, m);
+    double z;
+    if (method == Method::Simplex) z = simplex_reference<P>(R, y, b, bsum, m, s);
+    else if (R.uniform() && b == nullptr) z = ecdf_uniform<P>(R, y, m);
+    else z = ecdf_weighted<P>(R, y, b, bsum, m);
+    return overflow_to_inf(z);
+}
+
+template <int P>
+double query(const reference& R, const double* y, const double* b, int64_t m,
+             Method method, bool presorted, scratch& s) {
+    check_sample(y, m, "query");
+    const double bsum = (b != nullptr) ? check_weights(b, m, "query") : 1.0;
+    return run<P>(R, y, b, bsum, m, method, presorted, s);
 }
 
 template <int P>
@@ -1083,6 +1139,8 @@ void batch(const reference& R, const double* y, const double* b, const int64_t* 
             throw std::invalid_argument("batch: every sample must be non-empty");
     if (threads < 1) threads = 1;
     if ((int64_t)threads > k) threads = (int)k;
+    const unsigned hw = std::thread::hardware_concurrency();  // 0 if unknown
+    if (hw > 0 && (unsigned)threads > hw) threads = (int)hw;
 
     auto one = [&](int64_t i, scratch& s) {
         int64_t lo = offsets[i], len = offsets[i + 1] - offsets[i];
@@ -1096,17 +1154,25 @@ void batch(const reference& R, const double* y, const double* b, const int64_t* 
     std::atomic<int64_t> next(0);
     std::atomic<bool> failed(false);
     std::vector<std::thread> pool;
-    std::vector<std::exception_ptr> errs((size_t)threads);
-    for (int t = 0; t < threads; t++) {
-        pool.emplace_back([&, t]() {
-            scratch s;
-            try {
-                for (int64_t i = next++; i < k && !failed; i = next++) one(i, s);
-            } catch (...) {
-                errs[t] = std::current_exception();
-                failed = true;
-            }
-        });
+    std::vector<std::exception_ptr> errs((size_t)threads + 1);
+    pool.reserve((size_t)threads);
+    try {
+        for (int t = 0; t < threads; t++) {
+            pool.emplace_back([&, t]() {
+                scratch s;
+                try {
+                    for (int64_t i = next++; i < k && !failed; i = next++) one(i, s);
+                } catch (...) {
+                    errs[t] = std::current_exception();
+                    failed = true;
+                }
+            });
+        }
+    } catch (...) {
+        // A thread could not be started: stop the others and report it
+        // (destroying a joinable std::thread would terminate the process).
+        errs[threads] = std::current_exception();
+        failed = true;
     }
     for (auto& th : pool) th.join();
     for (auto& e : errs)
@@ -1121,7 +1187,8 @@ double pair(const double* x, const double* a, int64_t n, const double* y, const 
         check_sample(y, m, "y");
         int ni = to_int(n), mi = to_int(m);
         if (a == nullptr && b == nullptr)
-            return ot1d_detail::uniform<P>(ni, mi, x, y, nullptr, nullptr, nullptr, sorting, threads);
+            return overflow_to_inf(
+                ot1d_detail::uniform<P>(ni, mi, x, y, nullptr, nullptr, nullptr, sorting, threads));
         // Weights on one side only: the other side is uniform with the same total mass
         std::vector<double> fill;
         if (a == nullptr) {
@@ -1134,18 +1201,23 @@ double pair(const double* x, const double* a, int64_t n, const double* y, const 
             check_weights(a, n, "x");
             check_weights(b, m, "y");
         }
-        return ot1d_detail::weighted<P>(ni, mi, x, y, a, b, nullptr, nullptr, nullptr, sorting, threads);
+        return overflow_to_inf(
+            ot1d_detail::weighted<P>(ni, mi, x, y, a, b, nullptr, nullptr, nullptr, sorting, threads));
     }
-    if (a != nullptr && b != nullptr) {
-        double sa = check_weights(a, n, "x"), sb = check_weights(b, m, "y");
-        if (std::fabs(sa - sb) > 1e-9 * std::fmax(sa, sb))
+    // The reference validates x and a (and does not sort them if sorting == false)
+    reference R = (a == nullptr) ? reference(x, n, threads, !sorting) : reference(x, a, n, threads, !sorting);
+    check_sample(y, m, "y");
+    double sb = 1.0;
+    if (b != nullptr) {
+        sb = check_weights(b, m, "y");
+        const double sa = R.total_weight();
+        if (a != nullptr && std::fabs(sa - sb) > 1e-9 * std::fmax(sa, sb))
             throw std::invalid_argument("the weights of x and y have different total mass: Method::Ecdf "
                                         "compares probability measures (Method::Simplex transports the "
                                         "smaller mass)");
     }
-    reference R = (a == nullptr) ? reference(x, n, threads) : reference(x, a, n, threads);
     scratch s;
-    return query<P>(R, y, b, m, Method::Ecdf, !sorting, s);
+    return run<P>(R, y, b, sb, m, Method::Ecdf, !sorting, s);
 }
 
 } // namespace detail
@@ -1163,7 +1235,7 @@ inline double w2(const double* x, int64_t n, const double* y, int64_t m,
     return detail::pair<2>(x, nullptr, n, y, nullptr, m, method, sorting, threads);
 }
 
-// Weighted samples (x, a) and (y, b).
+// Weighted samples (x, a) and (y, b); a or b may be nullptr (uniform weights).
 inline double w1(const double* x, const double* a, int64_t n, const double* y, const double* b, int64_t m,
                  Method method = Method::Simplex, bool sorting = true, int threads = 1) {
     return detail::pair<1>(x, a, n, y, b, m, method, sorting, threads);

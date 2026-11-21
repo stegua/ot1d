@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdio>
 #include <functional>
 #include <random>
@@ -352,6 +353,21 @@ static void run_ot1d_case(std::mt19937& gen, int n, int m, int kind) {
                                : ot1d::reference(x.data(), n);
         CHECK(R.size() == n && R.uniform() == !wr, "reference n=%d: size/uniform", n);
         CHECK(std::is_sorted(R.sorted_values().begin(), R.sorted_values().end()), "reference not sorted");
+        // A reference built from the sorted data, without sorting, answers the same;
+        // so do w1 and w2 with sorting = false
+        std::vector<double> rs(R.sorted_values().begin(), R.sorted_values().end()), rw = R.weights();
+        ot1d::reference Rs = wr ? ot1d::reference(rs.data(), rw.data(), n, 1, true)
+                                : ot1d::reference(rs.data(), n, 1, true);
+        for (ot1d::Method me : METHODS)
+            for (int p = 1; p <= 2; p++) {
+                double z = wref(p, R, y.data(), nullptr, m, me), zs = wref(p, Rs, y.data(), nullptr, m, me);
+                double zp = p == 1
+                    ? ot1d::w1(rs.data(), wr ? rw.data() : nullptr, n, ys.data(), nullptr, m, me, false)
+                    : ot1d::w2(rs.data(), wr ? rw.data() : nullptr, n, ys.data(), nullptr, m, me, false);
+                CHECK(close(zs, z, 1e-12) && close(zp, z, tol),
+                      "presorted reference w%d %s n=%d m=%d wr=%d: %.15g, pair %.15g vs %.15g",
+                      p, method_name(me), n, m, wr, zs, zp, z);
+            }
         for (int wq = 0; wq < 2; wq++) {
             const std::vector<double>& A = wr ? na : ua;
             const std::vector<double>& B = wq ? nb : ub;
@@ -504,11 +520,27 @@ static void test_ot1d_invalid() {
     expect([&] { ot1d::w1(x, 3, bad, 3); });
     expect([&] { ot1d::w2(x, 3, bad, 3, ot1d::Method::Ecdf); });
     double half[3] = {0.5, 0.5, 0.5};
-    expect([&] { ot1d::w1(x, half, 3, x, nullptr, 3, ot1d::Method::Simplex); ot1d::w1(x, half, 3, x, x, 3, ot1d::Method::Ecdf); });
+    expect([&] { ot1d::w1(x, half, 3, x, x, 3, ot1d::Method::Ecdf); });  // different total masses
+    double unsorted[3] = {1, 3, 2};
+    expect([&] { ot1d::reference U(unsorted, 3, 1, true); });           // presorted, but not sorted
+    expect([&] { ot1d::w1(unsorted, 3, x, 3, ot1d::Method::Ecdf, false); });
+    // Squares that overflow: +inf, as in IEEE 754 arithmetic
+    double big[3] = {1, 2, 1e200};
+    // (bit test: this file is compiled with -ffast-math, which may fold z == inf)
+    auto is_inf = [](double z) {
+        uint64_t u;
+        std::memcpy(&u, &z, sizeof u);
+        return u == 0x7FF0000000000000ULL;
+    };
+    ot1d::reference B(big, 3);
+    for (ot1d::Method me : METHODS)
+        CHECK(is_inf(ot1d::w2(x, 3, big, 3, me)) && is_inf(ot1d::w2(big, 3, x, 3, me)) &&
+              is_inf(ot1d::w2_reference(B, x, 3, me)) && is_inf(ot1d::w2_reference(B, x, half, 3, me)),
+              "w2 %s with overflow is not +inf", method_name(me));
     int64_t off[3] = {0, 2, 2};
     double out[2];
     expect([&] { ot1d::w1_batch(R, x, off, 2, out); });
-    CHECK(thrown == 11, "invalid input: %d of 11 cases threw", thrown);
+    CHECK(thrown == 13, "invalid input: %d of 13 cases threw", thrown);
 }
 
 static void test_ot1d() {
