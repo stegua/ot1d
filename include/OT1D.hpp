@@ -294,11 +294,15 @@ inline bool use_parasort(int n, int threads) {
     return threads > 1 && n >= (use_simd() ? PARASORT_MIN_SIZE_SIMD : PARASORT_MIN_SIZE);
 }
 
-inline void sort_values(int n, double* x, int threads) {
-    if (_simd_sort((size_t)n, x))
+inline bool use_parasort(int64_t n, int threads) {
+    return n <= INT_MAX && use_parasort((int)n, threads);
+}
+
+inline void sort_values(int64_t n, double* x, int threads) {
+    if (n <= 1 || _simd_sort((size_t)n, x))
         return;
     if (use_parasort(n, threads))
-        parasort(n, x, threads);
+        parasort((int)n, x, threads);
     else
         pdqsort(x, x + n);
 }
@@ -311,6 +315,24 @@ inline void sort_items(std::vector<T>& v, Cmp cmp, int threads) {
         parasort_mu(n, v.data(), Cmp(cmp), threads);  // parasort_mu needs an rvalue
     else if (!_simd_sort(v.size(), v.data()))
         pdqsort(v.begin(), v.end(), cmp);
+}
+
+// Sorts the pairs (key[i], val[i]) by key; tmp is a reusable buffer.
+inline void sort_pairs(int64_t n, double* key, double* val, int threads, std::vector<dbl_pair_t>& tmp) {
+    if (n <= 1) return;
+#ifdef OT1D_USE_SIMD
+    if (use_simd() && !use_parasort(n, threads)) {
+        ot1d_simd::sort_kv(key, val, (size_t)n);  // in place, no copies
+        return;
+    }
+#endif
+    tmp.resize((size_t)n);
+    for (int64_t i = 0; i < n; i++) tmp[i] = dbl_pair_t(key[i], val[i]);
+    sort_items(tmp, [](const dbl_pair_t& v, const dbl_pair_t& w) { return v.first < w.first; }, threads);
+    for (int64_t i = 0; i < n; i++) {
+        key[i] = tmp[i].first;
+        val[i] = tmp[i].second;
+    }
 }
 
 template <int P>
@@ -403,6 +425,19 @@ inline void set_size(int* map_size, int k) {
     if (map_size != nullptr) map_size[0] = k;
 }
 
+// Value only, uniform weights, x and y sorted (no copies).
+template <int P>
+inline double uniform_sorted(int m, int n, const double* x, const double* y) {
+    if (m == n) {
+        double z = 0.0;
+        for (int i = 0; i < n; i++) z += cost<P>(x[i], y[i]);
+        return z / n;
+    }
+    PlanWriter plan(nullptr, nullptr);
+    return uniform_kernel<P>(m, n, [&](int i) { return x[i]; }, [&](int j) { return y[j]; },
+                             plan, nullptr, nullptr);
+}
+
 // Uniform weights, m and n arbitrary (also m == n).
 template <int P>
 inline double uniform(int m, int n, const double* x0, const double* y0,
@@ -422,16 +457,7 @@ inline double uniform(int m, int n, const double* x0, const double* y0,
             sort_values(m, x.data(), threads);
             sort_values(n, y.data(), threads);
         }
-        if (m == n) {
-            for (int i = 0; i < n; i++)
-                z += cost<P>(x[i], y[i]);
-            z /= n;
-        } else {
-            z = uniform_kernel<P>(m, n,
-                                  [&](int i) { return x[i]; },
-                                  [&](int j) { return y[j]; },
-                                  plan, nullptr, nullptr);
-        }
+        z = uniform_sorted<P>(m, n, x.data(), y.data());
     } else {
         // Keep track of the original indices to build the plan
         std::vector<dbl_idx_t> mu, nu;
@@ -521,27 +547,8 @@ inline void _parasort(int n, double* x, int threads=1) {
 }
 
 inline void _parasort_mu(int n, double* x, double *a, int threads=1) {
-    if (n <= 0) return;
-#ifdef OT1D_USE_SIMD
-    if (ot1d_detail::use_simd() && !ot1d_detail::use_parasort(n, threads)) {
-        ot1d_simd::sort_kv(x, a, (size_t)n);  // in place, no copies
-        return;
-    }
-#endif
-    std::vector<dbl_pair_t> mu;
-    mu.reserve(n);
-
-    for (int i = 0; i < n; i++)
-        mu.emplace_back(x[i], a[i]);
-
-    ot1d_detail::sort_items(mu, [](const dbl_pair_t& v, const dbl_pair_t& w) {
-        return v.first < w.first;
-    }, threads);
-
-    for (int i = 0; i < n; i++) {
-        x[i] = mu[i].first;
-        a[i] = mu[i].second;
-    }
+    std::vector<dbl_pair_t> tmp;
+    ot1d_detail::sort_pairs(n, x, a, threads, tmp);
 }
 
 // Wasserstein-1D, p=1, no weights, m=n (same size)
@@ -659,8 +666,6 @@ namespace ot1d {
 
 enum class Method { Simplex = 0, Ecdf = 1 };
 
-class reference;
-
 namespace detail {
 
 // Allocator that leaves new elements uninitialized on resize: the prefix sums
@@ -706,11 +711,30 @@ OT1D_PRECISE_ATTR inline double check_weights(const double* w, int64_t n, const 
     return s;
 }
 
-inline void check_sample(const double* x, int64_t n, const char* what) {
+inline void check_size(int64_t n, const char* what) {
     if (n <= 0)
         throw std::invalid_argument(std::string(what) + ": the sample must be non-empty");
-    if (!all_finite(x, n))
-        throw std::invalid_argument(std::string(what) + ": the sample contains NaN or inf");
+}
+
+[[noreturn]] inline void throw_not_finite(const char* what) {
+    throw std::invalid_argument(std::string(what) + ": the sample contains NaN or inf");
+}
+
+inline void check_sample(const double* x, int64_t n, const char* what) {
+    check_size(n, what);
+    if (!all_finite(x, n)) throw_not_finite(what);
+}
+
+// Checks x, copies it to r and returns its compensated sum: one pass over x.
+OT1D_PRECISE_ATTR inline double copy_checked_sum(const double* x, int64_t n, double* r, const char* what) {
+    OT1D_PRECISE_SCOPE
+    double s = 0.0, e = 0.0;
+    for (int64_t i = 0; i < n; i++) {
+        if (!is_finite(x[i])) throw_not_finite(what);
+        r[i] = x[i];
+        OT1D_NEUMAIER(s, e, x[i]);
+    }
+    return s + e;
 }
 
 inline int to_int(int64_t n) {
@@ -719,39 +743,7 @@ inline int to_int(int64_t n) {
     return (int)n;
 }
 
-// ---------------------------------------------------------------- sorting
-
-inline void sort_values(double* x, int64_t n, int threads) {
-    if (n <= 1) return;
-    if (_simd_sort((size_t)n, x)) return;
-    if (n <= INT_MAX && ot1d_detail::use_parasort((int)n, threads))
-        parasort((int)n, x, threads);
-    else
-        pdqsort(x, x + n);
-}
-
-// Sorts the pairs (key[i], val[i]) by key.
-inline void sort_pairs(double* key, double* val, int64_t n, int threads, std::vector<dbl_pair_t>& tmp) {
-    if (n <= 1) return;
-    bool par = n <= INT_MAX && ot1d_detail::use_parasort((int)n, threads);
-#ifdef OT1D_USE_SIMD
-    if (ot1d_detail::use_simd() && !par) {
-        ot1d_simd::sort_kv(key, val, (size_t)n);
-        return;
-    }
-#endif
-    tmp.resize((size_t)n);
-    for (int64_t i = 0; i < n; i++) tmp[i] = dbl_pair_t(key[i], val[i]);
-    auto cmp = [](const dbl_pair_t& v, const dbl_pair_t& w) { return v.first < w.first; };
-    if (par)
-        ot1d_detail::sort_items(tmp, cmp, threads);
-    else
-        pdqsort(tmp.begin(), tmp.end(), cmp);
-    for (int64_t i = 0; i < n; i++) {
-        key[i] = tmp[i].first;
-        val[i] = tmp[i].second;
-    }
-}
+// ---------------------------------------------------------------- search
 
 // First index idx >= lo with a[idx] > v (a sorted, a[lo-1] <= v), found by
 // galloping from lo: O(log(idx - lo)) for queries that move forward.
@@ -768,12 +760,9 @@ inline int64_t gallop_upper(const double* a, int64_t len, int64_t lo, double v) 
 
 // ---------------------------------------------------------------- fit
 
-// Uniform weights: c = mean(r), P1[i] = sum_{l<i} (r_l - c), P2[i] = sum_{l<i} (r_l - c)^2.
-OT1D_PRECISE_ATTR inline void fit_uniform(const double* r, int64_t n, double& c, double* P1, double* P2) {
+// Uniform weights, c = mean(r): P1[i] = sum_{l<i} (r_l - c), P2[i] = sum_{l<i} (r_l - c)^2.
+OT1D_PRECISE_ATTR inline void fit_uniform(const double* r, int64_t n, double c, double* P1, double* P2) {
     OT1D_PRECISE_SCOPE
-    double s = 0.0, e = 0.0;
-    for (int64_t i = 0; i < n; i++) OT1D_NEUMAIER(s, e, r[i]);
-    c = (s + e) / (double)n;
     double s1 = 0.0, e1 = 0.0, s2 = 0.0, e2 = 0.0;
     P1[0] = P2[0] = 0.0;
     for (int64_t i = 0; i < n; i++) {
@@ -815,10 +804,6 @@ struct scratch {
     std::vector<dbl_w_t> mu, nu;
 };
 
-template <int P>
-double query(const reference& R, const double* y, const double* b, int64_t m,
-             Method method, bool presorted, scratch& s);
-
 } // namespace detail
 
 // A sample prepared once (sorted, centered, with compensated prefix sums) for
@@ -826,6 +811,8 @@ double query(const reference& R, const double* y, const double* b, int64_t m,
 // Queries are const and thread safe: many threads can use one reference.
 class reference {
 public:
+    typedef std::vector<double, detail::uninit_alloc<double>> buffer;
+
     // Copies and sorts x. threads: threads of the parallel sort.
     reference(const double* x, int64_t n, int threads = 1) { fit(x, nullptr, n, threads); }
 
@@ -840,7 +827,7 @@ public:
     }
 
     // Sorted support points
-    const std::vector<double>& sorted_values() const { return r_; }
+    const buffer& sorted_values() const { return r_; }
 
     // Normalized weights of the sorted support points (empty if uniform)
     std::vector<double> weights() const {
@@ -858,28 +845,27 @@ public:
     const double* U() const { return U_.data(); }    // cumulative weights (empty if uniform)
 
 private:
-    typedef std::vector<double, detail::uninit_alloc<double>> buffer;
-    std::vector<double> r_;
-    buffer P1_, P2_, U_;
+    buffer r_, P1_, P2_, U_;
     double c_ = 0.0;
     bool uniform_ = true;
 
     void fit(const double* x, const double* w, int64_t n, int threads) {
-        detail::check_sample(x, n, "reference");
-        r_.assign(x, x + n);
+        detail::check_size(n, "reference");
+        uniform_ = (w == nullptr);
+        r_.resize((size_t)n);
+        double sum = detail::copy_checked_sum(x, n, r_.data(), "reference");
         P1_.resize((size_t)n + 1);
         P2_.resize((size_t)n + 1);
-        if (w == nullptr) {
-            uniform_ = true;
-            detail::sort_values(r_.data(), n, threads);
+        if (uniform_) {
+            ot1d_detail::sort_values(n, r_.data(), threads);
+            c_ = sum / (double)n;
             detail::fit_uniform(r_.data(), n, c_, P1_.data(), P2_.data());
             return;
         }
-        uniform_ = false;
         double wsum = detail::check_weights(w, n, "reference");
         std::vector<double> ws(w, w + n);
         std::vector<dbl_pair_t> tmp;
-        detail::sort_pairs(r_.data(), ws.data(), n, threads, tmp);
+        ot1d_detail::sort_pairs(n, r_.data(), ws.data(), threads, tmp);
         U_.resize((size_t)n + 1);
         detail::fit_weighted(r_.data(), ws.data(), n, wsum, c_, U_.data(), P1_.data(), P2_.data());
     }
@@ -959,50 +945,44 @@ struct ecdf_eval {
     double c, nd;
     int64_t n;
     bool uniform;
-    int64_t cur;
+    int64_t cur = 0;
+
+    explicit ecdf_eval(const reference& R)
+        : r(R.r()), P1(R.P1()), P2(R.P2()), U(R.U()), c(R.mean()), nd((double)R.size()),
+          n(R.size()), uniform(R.uniform()) {}
+
+    // F(y) for k = #{r_i <= y}
+    double cdf(int64_t k) const { return uniform ? (double)k / nd : U[k]; }
 
     template <int P>
     void at(double u, double& q1, double& q2) {
         int64_t i;
-        double base1, base2, ui;
-        if (uniform) {
-            double t = u * nd;
-            i = (int64_t)t;
+        double scale, ui;
+        if (uniform) {          // unscaled prefix sums
+            i = (int64_t)(u * nd);
             if (i > n - 1) i = n - 1;
             if (i < 0) i = 0;
             ui = (double)i / nd;
-            base1 = P1[i] / nd;
-            base2 = (P == 2) ? P2[i] / nd : 0.0;
+            scale = 1.0 / nd;
         } else {
             cur = gallop_upper(U, n, cur + 1, u) - 1;  // U[cur] <= u < U[cur+1], cur <= n-1
             i = cur;
             ui = U[i];
-            base1 = P1[i];
-            base2 = (P == 2) ? P2[i] : 0.0;
+            scale = 1.0;
         }
         double z = r[i] - c, d = u - ui;
-        q1 = base1 + d * z;
-        q2 = (P == 2) ? base2 + d * z * z : 0.0;
+        q1 = P1[i] * scale + d * z;
+        if (P == 2) q2 = P2[i] * scale + d * z * z;
     }
 };
 
-// b == nullptr: uniform query weights. Query sorted.
+// b == nullptr: uniform query weights, else weights with sum bsum. Query sorted.
 template <int P>
-OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, const double* b, int64_t m) {
+OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, const double* b, double bsum,
+                                       int64_t m) {
     OT1D_PRECISE_SCOPE
-    const int64_t n = R.size();
-    ecdf_eval ev{R.r(), R.P1(), R.P2(), R.U(), R.mean(), (double)n, n, R.uniform(), 0};
-    const double* r = R.r();
-    const double* U = R.U();
-    const double c = R.mean();
+    ecdf_eval ev(R);
     const double md = (double)m;
-
-    double bsum = 1.0;
-    if (b != nullptr) {
-        double s = 0.0, e = 0.0;
-        for (int64_t j = 0; j < m; j++) OT1D_NEUMAIER(s, e, b[j]);
-        bsum = s + e;
-    }
 
     double a = 0.0, q1a = 0.0, q2a = 0.0;
     double cs = 0.0, ce = 0.0;   // compensated cumulative query weight
@@ -1021,14 +1001,14 @@ OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, cons
             if (bpos > 1.0) bpos = 1.0;
             if (bpos < a) bpos = a;
         }
-        const double yc = y[j] - c;
-        double t, q1b, q2b;
+        const double yc = y[j] - ev.c;
+        double t, q1b, q2b = 0.0;
         if (P == 2) {
             ev.at<P>(bpos, q1b, q2b);
             t = (q2b - q2a) - 2.0 * yc * (q1b - q1a) + yc * yc * (bpos - a);
         } else {
-            k = gallop_upper(r, n, k, y[j]);
-            double F = R.uniform() ? (double)k / ev.nd : U[k];
+            k = gallop_upper(ev.r, ev.n, k, y[j]);
+            double F = ev.cdf(k);
             double sp = F < a ? a : (F > bpos ? bpos : F);
             double q1s, dummy;
             ev.at<P>(sp, q1s, dummy);
@@ -1046,22 +1026,13 @@ OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, cons
 // ------------------------------------------------- simplex on a reference
 
 template <int P>
-double simplex_reference(const reference& R, const double* y, const double* b, int64_t m, scratch& s) {
+double simplex_reference(const reference& R, const double* y, const double* b, double bsum, int64_t m,
+                         scratch& s) {
     const int nr = to_int(R.size()), mq = to_int(m);
     const double* r = R.r();
-    ot1d_detail::PlanWriter plan(nullptr, nullptr);
     double z;
     if (R.uniform() && b == nullptr) {
-        if (nr == mq) {
-            z = 0.0;
-            for (int i = 0; i < nr; i++) z += ot1d_detail::cost<P>(r[i], y[i]);
-            z /= nr;
-        } else {
-            z = ot1d_detail::uniform_kernel<P>(nr, mq,
-                                               [&](int i) { return r[i]; },
-                                               [&](int j) { return y[j]; },
-                                               plan, nullptr, nullptr);
-        }
+        z = ot1d_detail::uniform_sorted<P>(nr, mq, r, y);
     } else {
         // Probability measures on both sides
         s.mu.resize(nr);
@@ -1072,11 +1043,9 @@ double simplex_reference(const reference& R, const double* y, const double* b, i
             const double* U = R.U();
             for (int i = 0; i < nr; i++) s.mu[i] = dbl_w_t(r[i], U[i + 1] - U[i], i);
         }
-        double bsum = 0.0;
-        if (b != nullptr)
-            for (int j = 0; j < mq; j++) bsum += b[j];
         for (int j = 0; j < mq; j++)
             s.nu[j] = dbl_w_t(y[j], b != nullptr ? b[j] / bsum : 1.0 / mq, j);
+        ot1d_detail::PlanWriter plan(nullptr, nullptr);
         z = ot1d_detail::weighted_kernel<P>(nr, mq, s.mu, s.nu, plan);
     }
     return ot1d_detail::finalize<P>(z);
@@ -1088,21 +1057,21 @@ template <int P>
 double query(const reference& R, const double* y, const double* b, int64_t m,
              Method method, bool presorted, scratch& s) {
     check_sample(y, m, "query");
-    if (b != nullptr) check_weights(b, m, "query");
+    const double bsum = (b != nullptr) ? check_weights(b, m, "query") : 1.0;
     if (!presorted) {
         s.y.assign(y, y + m);
         if (b != nullptr) {
             s.b.assign(b, b + m);
-            sort_pairs(s.y.data(), s.b.data(), m, 1, s.tmp);
+            ot1d_detail::sort_pairs(m, s.y.data(), s.b.data(), 1, s.tmp);
             b = s.b.data();
         } else {
-            sort_values(s.y.data(), m, 1);
+            ot1d_detail::sort_values(m, s.y.data(), 1);
         }
         y = s.y.data();
     }
-    if (method == Method::Simplex) return simplex_reference<P>(R, y, b, m, s);
+    if (method == Method::Simplex) return simplex_reference<P>(R, y, b, bsum, m, s);
     if (R.uniform() && b == nullptr) return ecdf_uniform<P>(R, y, m);
-    return ecdf_weighted<P>(R, y, b, m);
+    return ecdf_weighted<P>(R, y, b, bsum, m);
 }
 
 template <int P>
@@ -1151,11 +1120,28 @@ double pair(const double* x, const double* a, int64_t n, const double* y, const 
         check_sample(x, n, "x");
         check_sample(y, m, "y");
         int ni = to_int(n), mi = to_int(m);
-        if (a == nullptr)
+        if (a == nullptr && b == nullptr)
             return ot1d_detail::uniform<P>(ni, mi, x, y, nullptr, nullptr, nullptr, sorting, threads);
-        check_weights(a, n, "x");
-        check_weights(b, m, "y");
+        // Weights on one side only: the other side is uniform with the same total mass
+        std::vector<double> fill;
+        if (a == nullptr) {
+            fill.assign((size_t)n, check_weights(b, m, "y") / (double)n);
+            a = fill.data();
+        } else if (b == nullptr) {
+            fill.assign((size_t)m, check_weights(a, n, "x") / (double)m);
+            b = fill.data();
+        } else {
+            check_weights(a, n, "x");
+            check_weights(b, m, "y");
+        }
         return ot1d_detail::weighted<P>(ni, mi, x, y, a, b, nullptr, nullptr, nullptr, sorting, threads);
+    }
+    if (a != nullptr && b != nullptr) {
+        double sa = check_weights(a, n, "x"), sb = check_weights(b, m, "y");
+        if (std::fabs(sa - sb) > 1e-9 * std::fmax(sa, sb))
+            throw std::invalid_argument("the weights of x and y have different total mass: Method::Ecdf "
+                                        "compares probability measures (Method::Simplex transports the "
+                                        "smaller mass)");
     }
     reference R = (a == nullptr) ? reference(x, n, threads) : reference(x, a, n, threads);
     scratch s;

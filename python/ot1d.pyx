@@ -38,20 +38,16 @@ import numpy as np
 
 from libcpp cimport bool
 from libcpp.memory cimport unique_ptr
-from libcpp.vector cimport vector
 from libc.stdint cimport int64_t
 
 from _ot1d_cpp cimport (OT1Da0, OT1Db0, OT1Da, OT1Db, OT1Dc, OT1Dd,
                         OT1Da0_withplan, OT1Db0_withplan, OT1Da_withplan, OT1Db_withplan,
                         OT1Dc_withplan, OT1Dd_withplan,
                         OT1D_simd_supported, OT1D_set_simd, _parasort, _parasort_mu,
-                        Method, c_reference, c_w1, c_w2, c_w1_weighted, c_w2_weighted,
+                        Method, c_reference, c_w1, c_w2,
                         c_w1_reference, c_w2_reference, c_w1_batch, c_w2_batch)
 
 __version__ = "0.5.0"
-
-_METHODS = ('simplex', 'ecdf')
-
 
 cdef Method _method(method) except *:
     if method == 'simplex':
@@ -77,9 +73,7 @@ def _weights(W, n, name):
     W = np.ascontiguousarray(W, dtype=float)
     if W.ndim != 1 or len(W) != n:
         raise ValueError("{} must be one-dimensional with the same length as its sample".format(name))
-    if np.any(W < 0):
-        raise ValueError("weights must be nonnegative")
-    return W
+    return W  # values (finite, nonnegative, positive sum) are checked in C++
 
 
 #--------------------------------------------------------------
@@ -91,24 +85,6 @@ def _pair(int p, X, Y, A, B, method, bool sorting, int threads):
     Y = _sample(Y, 'Y')
     A = _weights(A, len(X), 'A')
     B = _weights(B, len(Y), 'B')
-    if A is not None or B is not None:
-        sa = A.sum() if A is not None else None
-        sb = B.sum() if B is not None else None
-        if me == Method.Simplex:
-            # The north-west corner rule needs weights on both sides: the missing
-            # ones are uniform, with the same total mass as the given ones.
-            if A is None:
-                A, sa = np.full(len(X), sb / len(X)), sb
-            if B is None:
-                B, sb = np.full(len(Y), sa / len(Y)), sa
-            if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
-                warnings.warn("A and B have different total mass ({} != {}): only the smaller mass "
-                              "is transported, and the returned value is partial".format(sa, sb),
-                              RuntimeWarning, stacklevel=3)
-        elif sa is not None and sb is not None and not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
-            raise ValueError("A and B have different total mass ({} != {}): method='ecdf' compares "
-                             "probability measures; use method='simplex' for a partial "
-                             "transport".format(sa, sb))
 
     cdef const double[::1] Xmv = X
     cdef const double[::1] Ymv = Y
@@ -125,16 +101,19 @@ def _pair(int p, X, Y, A, B, method, bool sorting, int threads):
         Bmv = B
         b = &Bmv[0]
     with nogil:
-        if a == NULL and b == NULL:
-            if p == 1:
-                z = c_w1(&Xmv[0], n, &Ymv[0], m, me, sorting, threads)
-            else:
-                z = c_w2(&Xmv[0], n, &Ymv[0], m, me, sorting, threads)
+        if p == 1:
+            z = c_w1(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
         else:
-            if p == 1:
-                z = c_w1_weighted(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
-            else:
-                z = c_w2_weighted(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
+            z = c_w2(&Xmv[0], a, n, &Ymv[0], b, m, me, sorting, threads)
+    # One-sided weights, and different total masses with 'ecdf' (ValueError), are
+    # handled in C++; only the warning of 'simplex' is raised here, once C++ has
+    # validated the weights.
+    if me == Method.Simplex and A is not None and B is not None:
+        sa, sb = A.sum(), B.sum()
+        if not np.isclose(sa, sb, rtol=1e-9, atol=0.0):
+            warnings.warn("A and B have different total mass ({} != {}): only the smaller mass "
+                          "is transported, and the returned value is partial".format(sa, sb),
+                          RuntimeWarning, stacklevel=3)
     return z
 
 
@@ -214,9 +193,6 @@ cdef class reference:
                 r = new c_reference(&Xmv[0], &Amv[0], n, threads)
         self._ref.reset(r)
 
-    cdef const c_reference* ptr(self):
-        return self._ref.get()
-
     def __len__(self):
         return self._ref.get().size()
 
@@ -249,16 +225,23 @@ cdef class reference:
         """Normalized weights of the sorted support points, or None if uniform."""
         if self._ref.get().uniform():
             return None
-        out = np.asarray(self._ref.get().weights(), dtype=float)
+        cdef int64_t n = self._ref.get().size()
+        cdef const double* U = self._ref.get().U()
+        out = np.empty(n, dtype=float)
+        cdef double[::1] o = out
+        cdef int64_t i
+        with nogil:
+            for i in range(n):
+                o[i] = U[i + 1] - U[i]
         out.flags.writeable = False
         return out
 
     def __reduce__(self):
-        return (reference, (np.array(self.sorted_values), self.weights))
+        return (reference, (self.sorted_values, self.weights))
 
     def __repr__(self):
         return "ot1d.reference(n={}, mean={!r}, {})".format(
-            len(self), self.mean, "uniform weights" if self.weights is None else "weighted")
+            len(self), self.mean, "uniform weights" if self._ref.get().uniform() else "weighted")
 
 
 def _query(int p, reference ref, Y, B, method, bool sorting):
@@ -270,7 +253,7 @@ def _query(int p, reference ref, Y, B, method, bool sorting):
     cdef const double* b = NULL
     cdef int64_t m = len(Y)
     cdef double z
-    cdef const c_reference* r = ref.ptr()
+    cdef const c_reference* r = ref._ref.get()
     if B is not None:
         Bmv = B
         b = &Bmv[0]
@@ -336,17 +319,15 @@ def _batch(int p, X, Ys, A, Bs, method, int threads):
         return out
     B = None
     if Bs is not None:
-        B, boff, blen = _chunks(Bs, 'Bs')
+        B, _, blen = _chunks(Bs, 'Bs')
         if blen != lengths:
             raise ValueError("Bs must have the same number and lengths of samples as Ys")
-        if np.any(B < 0):
-            raise ValueError("weights must be nonnegative")
     cdef const double[::1] Ymv = Y if len(Y) > 0 else np.zeros(1)
     cdef const int64_t[::1] Omv = offsets
     cdef double[::1] Zmv = out
     cdef const double[::1] Bmv
     cdef const double* b = NULL
-    cdef const c_reference* r = ref.ptr()
+    cdef const c_reference* r = ref._ref.get()
     if B is not None:
         Bmv = B if len(B) > 0 else np.zeros(1)
         b = &Bmv[0]

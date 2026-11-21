@@ -318,12 +318,34 @@ static std::vector<double> normalized(const std::vector<double>& w) {
     return r;
 }
 
+// W_p to a reference / between two samples; b == nullptr calls the unweighted overload.
+static double wref(int p, const ot1d::reference& R, const double* y, const double* b, int64_t m,
+                   ot1d::Method me, bool presorted = false) {
+    if (b == nullptr)
+        return p == 1 ? ot1d::w1_reference(R, y, m, me, presorted) : ot1d::w2_reference(R, y, m, me, presorted);
+    return p == 1 ? ot1d::w1_reference(R, y, b, m, me, presorted) : ot1d::w2_reference(R, y, b, m, me, presorted);
+}
+
+static double wpair(int p, const double* x, const double* a, int64_t n, const double* y, const double* b,
+                    int64_t m, ot1d::Method me) {
+    if (a == nullptr && b == nullptr)
+        return p == 1 ? ot1d::w1(x, n, y, m, me) : ot1d::w2(x, n, y, m, me);
+    return p == 1 ? ot1d::w1(x, a, n, y, b, m, me) : ot1d::w2(x, a, n, y, b, m, me);
+}
+
 static void run_ot1d_case(std::mt19937& gen, int n, int m, int kind) {
     std::vector<double> x = sample(gen, n, kind), y = sample(gen, m, kind);
     std::vector<double> wa = random_weights(gen, n, gen() % 2), wb = random_weights(gen, m, gen() % 2);
     std::vector<double> ua(n, 1.0 / n), ub(m, 1.0 / m);
     std::vector<double> na = normalized(wa), nb = normalized(wb);
     const double tol = 1e-9;
+
+    // Sorted copy of the query, for presorted = true
+    std::vector<std::pair<double, double>> q;
+    for (int j = 0; j < m; j++) q.emplace_back(y[j], wb[j]);
+    std::sort(q.begin(), q.end());
+    std::vector<double> ys(m), bs(m);
+    for (int j = 0; j < m; j++) { ys[j] = q[j].first; bs[j] = q[j].second; }
 
     for (int wr = 0; wr < 2; wr++) {
         ot1d::reference R = wr ? ot1d::reference(x.data(), wa.data(), n, 1 + (n % 3))
@@ -335,42 +357,24 @@ static void run_ot1d_case(std::mt19937& gen, int n, int m, int kind) {
             const std::vector<double>& B = wq ? nb : ub;
             double r[3] = {0, reference(x, A, y, B, 1), reference(x, A, y, B, 2)};
 
-            // Sorted copy of the query, for presorted = true
-            std::vector<std::pair<double, double>> q;
-            for (int j = 0; j < m; j++) q.emplace_back(y[j], wb[j]);
-            std::sort(q.begin(), q.end());
-            std::vector<double> ys(m), bs(m);
-            for (int j = 0; j < m; j++) { ys[j] = q[j].first; bs[j] = q[j].second; }
-
             for (ot1d::Method me : METHODS) {
                 for (int p = 1; p <= 2; p++) {
-                    double z, zs;
-                    if (wq) {
-                        z = p == 1 ? ot1d::w1_reference(R, y.data(), wb.data(), m, me)
-                                   : ot1d::w2_reference(R, y.data(), wb.data(), m, me);
-                        zs = p == 1 ? ot1d::w1_reference(R, ys.data(), bs.data(), m, me, true)
-                                    : ot1d::w2_reference(R, ys.data(), bs.data(), m, me, true);
-                    } else {
-                        z = p == 1 ? ot1d::w1_reference(R, y.data(), m, me)
-                                   : ot1d::w2_reference(R, y.data(), m, me);
-                        zs = p == 1 ? ot1d::w1_reference(R, ys.data(), m, me, true)
-                                    : ot1d::w2_reference(R, ys.data(), m, me, true);
-                    }
+                    double z = wref(p, R, y.data(), wq ? wb.data() : nullptr, m, me);
+                    double zs = wref(p, R, ys.data(), wq ? bs.data() : nullptr, m, me, true);
                     CHECK(close(z, r[p], tol), "w%d_reference %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
                           p, method_name(me), n, m, kind, wr, wq, z, r[p]);
                     CHECK(close(zs, r[p], tol), "w%d_reference presorted %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
                           p, method_name(me), n, m, kind, wr, wq, zs, r[p]);
 
-                    // Pairwise functions (normalized weights: equal total masses)
-                    double zp;
-                    if (wr || wq)
-                        zp = p == 1 ? ot1d::w1(x.data(), A.data(), n, y.data(), B.data(), m, me)
-                                    : ot1d::w2(x.data(), A.data(), n, y.data(), B.data(), m, me);
-                    else
-                        zp = p == 1 ? ot1d::w1(x.data(), n, y.data(), m, me)
-                                    : ot1d::w2(x.data(), n, y.data(), m, me);
-                    CHECK(close(zp, r[p], tol), "w%d %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g vs %.15g",
-                          p, method_name(me), n, m, kind, wr, wq, zp, r[p]);
+                    // Pairwise functions (normalized weights: equal total masses), with
+                    // the weights on both sides, and on the weighted side only
+                    double zp = wpair(p, x.data(), wr || wq ? A.data() : nullptr, n,
+                                      y.data(), wr || wq ? B.data() : nullptr, m, me);
+                    double zo = wpair(p, x.data(), wr ? na.data() : nullptr, n,
+                                      y.data(), wq ? nb.data() : nullptr, m, me);
+                    CHECK(close(zp, r[p], tol) && close(zo, r[p], tol),
+                          "w%d %s n=%d m=%d kind=%d wr=%d wq=%d: %.15g, one-sided %.15g vs %.15g",
+                          p, method_name(me), n, m, kind, wr, wq, zp, zo, r[p]);
                 }
             }
         }
@@ -400,10 +404,7 @@ static void test_ot1d_batch(std::mt19937& gen) {
                         for (int i = 0; i < k; i++) {
                             const double* yi = y.data() + off[i];
                             int64_t mi = off[i + 1] - off[i];
-                            double z = wq ? (p == 1 ? ot1d::w1_reference(R, yi, bb + off[i], mi, me)
-                                                    : ot1d::w2_reference(R, yi, bb + off[i], mi, me))
-                                          : (p == 1 ? ot1d::w1_reference(R, yi, mi, me)
-                                                    : ot1d::w2_reference(R, yi, mi, me));
+                            double z = wref(p, R, yi, wq ? bb + off[i] : nullptr, mi, me);
                             same = same && (z == out[i]);
                         }
                         CHECK(same, "w%d_batch %s wr=%d wq=%d threads=%d differs from w%d_reference",
@@ -502,10 +503,12 @@ static void test_ot1d_invalid() {
     expect([&] { ot1d::w1_reference(R, x, neg, 3); });
     expect([&] { ot1d::w1(x, 3, bad, 3); });
     expect([&] { ot1d::w2(x, 3, bad, 3, ot1d::Method::Ecdf); });
+    double half[3] = {0.5, 0.5, 0.5};
+    expect([&] { ot1d::w1(x, half, 3, x, nullptr, 3, ot1d::Method::Simplex); ot1d::w1(x, half, 3, x, x, 3, ot1d::Method::Ecdf); });
     int64_t off[3] = {0, 2, 2};
     double out[2];
     expect([&] { ot1d::w1_batch(R, x, off, 2, out); });
-    CHECK(thrown == 10, "invalid input: %d of 10 cases threw", thrown);
+    CHECK(thrown == 11, "invalid input: %d of 11 cases threw", thrown);
 }
 
 static void test_ot1d() {

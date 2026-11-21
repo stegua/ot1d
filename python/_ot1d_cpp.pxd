@@ -12,7 +12,6 @@
 # C++ bool: without this import, Cython treats `bool` as the Python bool
 # object and passes a non-null PyObject*, so `sorting` was always true.
 from libcpp cimport bool
-from libcpp.vector cimport vector
 from libc.stdint cimport int64_t
 
 # All functions are pure C++ (no Python API), so they can run without the GIL.
@@ -55,15 +54,14 @@ cdef extern from "OT1D.hpp" namespace "ot1d" nogil:
 		bool uniform()
 		size_t nbytes()
 		const double* r()
-		vector[double] weights() except +
+		const double* U()
 
 cdef extern from "OT1D.hpp" nogil:
-	cdef double c_w1 "ot1d::w1"(const double*, int64_t, const double*, int64_t, Method, bool, int) except +
-	cdef double c_w2 "ot1d::w2"(const double*, int64_t, const double*, int64_t, Method, bool, int) except +
-	cdef double c_w1_weighted "ot1d::w1"(const double*, const double*, int64_t,
-	                                     const double*, const double*, int64_t, Method, bool, int) except +
-	cdef double c_w2_weighted "ot1d::w2"(const double*, const double*, int64_t,
-	                                     const double*, const double*, int64_t, Method, bool, int) except +
+	# Weighted overloads; a, b may be NULL (uniform weights)
+	cdef double c_w1 "ot1d::w1"(const double*, const double*, int64_t,
+	                            const double*, const double*, int64_t, Method, bool, int) except +
+	cdef double c_w2 "ot1d::w2"(const double*, const double*, int64_t,
+	                            const double*, const double*, int64_t, Method, bool, int) except +
 
 	cdef double c_w1_reference "ot1d::w1_reference"(const c_reference&, const double*, const double*, int64_t,
 	                                                Method, bool) except +
