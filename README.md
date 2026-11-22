@@ -47,7 +47,7 @@ z = ot1d.w2(x, y, A=None, B=None, method='simplex', sorting=True, threads=1)   #
 z, T, W = ot1d.w1_plan(x, y, A=None, B=None, sorting=True, threads=1)          # W1 and an optimal plan
 z, T, W = ot1d.w2_plan(x, y, A=None, B=None, sorting=True, threads=1)          # W2 and an optimal plan
 
-ref = ot1d.reference(x, A=None, threads=1)                                     # a sample prepared once
+ref = ot1d.reference(x, A=None, threads=1, sorting=True)                       # a sample prepared once
 z = ot1d.w1_reference(ref, y, B=None, method='ecdf', sorting=True)             # W1 between ref and y
 z = ot1d.w2_reference(ref, y, B=None, method='ecdf', sorting=True)             # W2
 zs = ot1d.w1_batch(x_or_ref, ys, A=None, Bs=None, method='ecdf', threads=1)    # W1 between x and each y in ys
@@ -63,25 +63,34 @@ Both methods are exact and return the same value for probability measures (no we
 
 **Migrating from 0.4:** replace `from OT1D import OT1D, parasort` with `from ot1d import OT1D, parasort` (or `import ot1d`); the function `OT1D` is unchanged, and `OT1D(x, y, p=1)` equals `ot1d.w1(x, y)`.
 
-### The function OT1D (v0.4 interface)
-The main function of versions up to 0.4 is still available:
+### Parameters (v0.5.1)
+The functions on two samples share the same parameters:
+
+```python
+z = ot1d.w1(x, y, A=None, B=None, method='simplex', sorting=True, threads=1)
+```
+
+* `x`: the support points of the first measure.
+* `y`: the support points of the second measure. The two samples can have different sizes.
+* `A`: the (nonnegative) weights of the first measure. If equal to `None`, all the points have the same mass.
+* `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the points have the same mass. With `w1` and `w2`, the weights can be given for one sample only; with `w1_plan`, `w2_plan` and `OT1D`, `A` and `B` must be given together. If the two total masses differ, see the paragraph on `method` above.
+* `method`: `'simplex'` or `'ecdf'`, as described above. The functions that return a plan have no such parameter: they always use `'simplex'`.
+* `sorting`: if equal to `True`, the function sorts the support points given as input; if equal to `False`, the input must already be sorted in increasing order (this is not checked). Since version 0.5.1, with `sorting=False` and `method='simplex'` the arrays are read in place, without any copy: two sorted samples of 10<sup>7</sup> points take 9 ms. To sort a sample in advance, use `np.sort(x)` or, in place, `ot1d.parasort(x)` (with weights, `ot1d.parasort(x, A)` reorders `A` together with `x`).
+* `threads`: the number of threads used by the parallel sorting algorithm (default `1`). Threads only speed up the sorting phase, so they matter only with `sorting=True`, and only on very large samples. **In most cases you do not need them: keep `threads=1`.** On x86-64 CPUs (Linux, macOS and, since version 0.5.1, Windows), where the SIMD sorting is used, the extra threads are ignored for samples of fewer than 5 million points (and with fewer than 4 threads), and for samples with weights of any size; at 10 million points, 8 threads sort in 44 ms instead of 66 ms. Only the functions that return a plan use them earlier, from 200,000 points. Without the SIMD sorting (ARM, including Apple Silicon), the threads are used from 200,000 points. In `w1_batch` and `w2_batch` the parameter has a different role: the samples are split over the threads, which helps as soon as there are several samples.
+
+The functions `w1_plan` and `w2_plan` return a triple `z, T, W`, the distance and an optimal transportation plan: the row `T[k] = (i, j)` means that the mass `W[k]` moves from `x[i]` to `y[j]` (see the example [`interpolate.py`](https://github.com/stegua/ot1d/blob/main/python/interpolate.py)). The plan has at most m + n - 1 entries.
+
+The result is never negative. Invalid input raises a `ValueError`: an empty sample, NaN or inf among the points or the weights, a negative weight, or a total weight equal to zero.
+
+**The function `OT1D` of the versions up to 0.4** is still available, with the algorithm `'simplex'`:
 
 ```python
 z = ot1d.OT1D(x, y, A=None, B=None, p=1, sorting=True, threads=1, plan=False)
 ```
 
-The parameters of the function are:
+Here `p` is the order of the distance (`p=1` or `p=2`), and with `plan=True` the function returns the triple `z, T, W`. So `OT1D(x, y, A, B, p=1)` equals `ot1d.w1(x, y, A, B)`, and `OT1D(x, y, A, B, p=2, plan=True)` equals `ot1d.w2_plan(x, y, A, B)`.
 
-* `x`: the support points of the first measure.
-* `y`: the support points of the second measure.
-* `A`: the (nonnegative) weights of the first measure. If equal to `None`, all the samples have the same mass.
-* `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the samples have the same mass. `A` and `B` must be given together. If their total masses differ, a `RuntimeWarning` is issued and only the smaller total mass is transported (partial value and plan).
-* `p`: the order of the Wasserstein distance (`p=1` or `p=2`).
-* `sorting`: if equal to `True`, the function sorts the support points given as input; if equal to `False`, the input must already be sorted.
-* `threads`: the number of threads used by the parallel sorting algorithm (default `1`). Threads only speed up the sorting phase, so they matter only with `sorting=True`, and only on very large samples. **In most cases you do not need them: keep `threads=1`.** On x86-64 CPUs (Linux, macOS and, since version 0.5.1, Windows), where the SIMD sorting is used, the extra threads are ignored for samples of fewer than 5 million points (and with fewer than 4 threads), and for samples with weights of any size; at 10 million points, 8 threads sort in 44 ms instead of 66 ms. Only the functions that return a plan use them earlier, from 200,000 points. Without the SIMD sorting (ARM, including Apple Silicon), the threads are used from 200,000 points. In `w1_batch` and `w2_batch` the parameter has a different role: the samples are split over the threads, which helps as soon as there are several samples.
-* `plan`: if equal to `True`, the function also returns an optimal transportation plan, as a triple `z, T, W`: the row `T[k] = (i, j)` means that the mass `W[k]` moves from `x[i]` to `y[j]` (see the example [`interpolate.py`](https://github.com/stegua/ot1d/blob/main/python/interpolate.py)).
-
-The first four parameters can be given as numpy arrays (*preferred*) or Python lists.
+The points and the weights can be given as numpy arrays (*preferred*) or Python lists; the input arrays are never modified (only `ot1d.parasort` sorts in place).
 
 All the functions release the GIL while running the C++ code, so several calls can run in parallel from different Python threads (for instance, with a `ThreadPoolExecutor`); in this case, keep `threads=1`.
 
