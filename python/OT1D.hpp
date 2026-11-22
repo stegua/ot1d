@@ -79,6 +79,11 @@
 #include <sys/mman.h>   // madvise: transparent huge pages for the buffers of a reference
 #endif
 
+#if (defined(OT1D_USE_AVX512) || defined(OT1D_USE_AVX2)) && defined(_MSC_VER) && \
+    !defined(__clang__) && defined(_M_X64)
+#include <intrin.h>      // __cpuid, __cpuidex, _xgetbv: see ot1d_simd::cpu_level()
+#endif
+
 // Super fast sorting algorithm (C++11)
 // https://github.com/orlp/pdqsort
 #include "pdqsort.h"
@@ -154,7 +159,32 @@ void sort_kv(double* key, uint64_t* val, size_t n);
 // Best level compiled in and supported by the CPU and the OS. For AVX-512,
 // x86-simd-sort needs the "Skylake-X" subsets: F, DQ, VL, BW, CD.
 inline int cpu_level() {
-#if defined(OT1D_USE_SIMD) && (defined(__GNUC__) || defined(__clang__)) && \
+#if defined(OT1D_USE_SIMD) && defined(_MSC_VER) && !defined(__clang__) && defined(_M_X64)
+    // MSVC: CPUID for the instructions, XGETBV (register XCR0) for the
+    // registers the OS saves on a context switch.
+    int r[4];                                  // EAX, EBX, ECX, EDX
+    __cpuid(r, 0);
+    if (r[0] < 7) return NONE;                 // no leaf 7 (extended features)
+    __cpuid(r, 1);
+    const bool osxsave = (r[2] & (1 << 27)) != 0;
+    const bool avx = (r[2] & (1 << 28)) != 0;
+    if (!osxsave || !avx) return NONE;         // XGETBV unavailable, or no AVX
+    const unsigned long long xcr0 = _xgetbv(0);
+    if ((xcr0 & 0x6) != 0x6) return NONE;      // XMM and YMM state
+    __cpuidex(r, 7, 0);
+    const int ebx = r[1];
+#ifdef OT1D_USE_AVX512
+    // F (bit 16), DQ (17), CD (28), BW (30), VL (31); opmask, ZMM 0-15 upper
+    // halves and ZMM 16-31 state (XCR0 bits 5, 6, 7)
+    const unsigned avx512_bits = (1u << 16) | (1u << 17) | (1u << 28) | (1u << 30) | (1u << 31);
+    if (((unsigned)ebx & avx512_bits) == avx512_bits && (xcr0 & 0xE0) == 0xE0)
+        return AVX512;
+#endif
+#ifdef OT1D_USE_AVX2
+    if (ebx & (1 << 5))
+        return AVX2;
+#endif
+#elif defined(OT1D_USE_SIMD) && (defined(__GNUC__) || defined(__clang__)) && \
     (defined(__x86_64__) || defined(__i386__))
     __builtin_cpu_init();
 #ifdef OT1D_USE_AVX512
@@ -1112,7 +1142,9 @@ public:
         std::vector<double> w;
         if (uniform_) return w;
         w.resize(r_.size());
-        for (size_t i = 0; i < r_.size(); i++) w[i] = U_[i + 1] - U_[i];
+        // U_[n] is exactly 1, while the compensated sum U_[n - 1] can exceed 1 by
+        // a few ulps: the last weight, if zero, could come out slightly negative.
+        for (size_t i = 0; i < r_.size(); i++) w[i] = std::max(0.0, U_[i + 1] - U_[i]);
         return w;
     }
 

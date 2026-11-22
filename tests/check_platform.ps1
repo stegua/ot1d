@@ -97,6 +97,36 @@ function CxxTest($out, $flags) {
     if ($LASTEXITCODE -ne 0) { throw "the tests failed" }
 }
 
+# The C++ tests with the SIMD sorting (x86-simd-sort), as "make test-simd": only
+# ot1d_avx2.cpp and ot1d_avx512.cpp are compiled with SIMD flags, and they are
+# linked last, AVX2 before AVX-512 (the linker keeps the first copy of an inline
+# function compiled in several files). The tests of a level the CPU does not
+# support are skipped at runtime.
+function CxxSimdTest($out) {
+    $exe = Join-Path $Tmp "$out.exe"
+    $objs = @()
+    # C4067, C4244, C4267: warnings from x86-simd-sort (harmless, see setup.py)
+    foreach ($u in @(@("ot1d_avx2", "/arch:AVX2"), @("ot1d_avx512", "/arch:AVX512"))) {
+        $obj = Join-Path $Tmp ("{0}_{1}.obj" -f $out, $u[0])
+        $cmd = @("/nologo", "/c", "/std:c++17", "/O2", "/EHsc", "/DNDEBUG", "/wd4067", "/wd4244", "/wd4267", $u[1], "/Iinclude", ("include\{0}.cpp" -f $u[0]), "/Fo:$obj")
+        Write-Host ("cl " + ($cmd -join " "))
+        & cl @cmd 2>&1 | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) { throw "compilation failed" }
+        $objs += $obj
+    }
+    $obj = Join-Path $Tmp "$out.obj"
+    $cmd = @("/nologo", "/c", "/EHsc", "/W3", "/wd4244", "/wd4267", "/std:c++14", "/O2", "/DNDEBUG", "/DOT1D_USE_AVX2", "/DOT1D_USE_AVX512", "/Iinclude", "tests\test_ot1d.cpp", "/Fo:$obj")
+    Write-Host ("cl " + ($cmd -join " "))
+    & cl @cmd 2>&1 | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "compilation failed" }
+    $cmd = @("/nologo", $obj) + $objs + @("/OUT:$exe")
+    Write-Host ("link " + ($cmd -join " "))
+    & link @cmd 2>&1 | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "link failed" }
+    & $exe 2>&1 | Select-Object -Last 15 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "the tests failed" }
+}
+
 try {
     Section "Machine"
     Get-Date
@@ -134,10 +164,13 @@ try {
         Write-Host "python not found on the PATH."
     }
 
-    Step "The two copies of the header are the same" {
+    Step "The copies of the header and of the SIMD files in python\ are the same" {
         $a = Get-FileHash include\OT1D.hpp
         $b = Get-FileHash python\OT1D.hpp
         if ($a.Hash -ne $b.Hash) { throw "include\OT1D.hpp and python\OT1D.hpp differ" }
+        foreach ($f in @("ot1d_simdsort.inc", "ot1d_avx2.cpp", "ot1d_avx512.cpp")) {
+            if ((Get-FileHash "include\$f").Hash -ne (Get-FileHash "python\$f").Hash) { throw "include\$f and python\$f differ" }
+        }
     }
 
     if ($haveCl) {
@@ -145,6 +178,7 @@ try {
         Step "C++ tests, /O2" { CxxTest "t_o2" @("/O2", "/DNDEBUG") }
         Step "C++ tests, /O2 /fp:fast" { CxxTest "t_fast" @("/O2", "/fp:fast", "/DNDEBUG") }
         Step "C++ tests, /O2 /arch:AVX2" { CxxTest "t_avx2" @("/O2", "/arch:AVX2", "/DNDEBUG") }
+        Step "C++ tests, SIMD sorting (AVX2 and AVX-512 files)" { CxxSimdTest "t_simd" }
         if (-not $Quick) {
             Step "C++ tests, AddressSanitizer" { CxxTest "t_asan" @("/O1", "/Zi", "/fsanitize=address") }
         }

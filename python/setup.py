@@ -13,6 +13,7 @@ from Cython.Build import cythonize
 import numpy as np
 import os
 import platform
+import sys
 import warnings
 
 CC_ARGS = [
@@ -40,30 +41,43 @@ if platform.system() == 'Darwin':
 # ot1d_avx512.cpp are compiled with SIMD flags; OT1D.hpp selects at runtime the
 # best one supported by the CPU, or falls back to pdqsort, so the module
 # runs on every x86-64 CPU. Set OT1D_NO_SIMD=1 to build without them.
-SIMD_UNITS = [  # (source, flags, macro): AVX2 first, see the link order below
-    ('ot1d_avx2.cpp', ['-mavx2'], 'OT1D_USE_AVX2'),
+SIMD_UNITS = [  # (source, GCC/Clang flags, MSVC flags, macro): AVX2 first, see the link order below
+    ('ot1d_avx2.cpp', ['-mavx2'], ['/arch:AVX2'], 'OT1D_USE_AVX2'),
     ('ot1d_avx512.cpp', ['-mavx512f', '-mavx512dq', '-mavx512vl', '-mavx512bw', '-mavx512cd'],
-     'OT1D_USE_AVX512'),
+     ['/arch:AVX512'], 'OT1D_USE_AVX512'),
 ]
 
+# /arch:AVX512 enables F, CD, BW, DQ and VL, the subsets used by x86-simd-sort.
+# C4067: x86-simd-sort writes "and" in two #if lines, which MSVC does not parse
+# in its default mode; both conditions are false anyway (Intel compiler, GCC).
+# C4244, C4267: conversions between integer types, by the hundreds in x86-simd-sort.
+SIMD_ARGS = {
+    'unix': ['-std=c++17', '-O2', '-DNDEBUG'],
+    'msvc': ['/std:c++17', '/O2', '/EHsc', '/DNDEBUG', '/wd4067', '/wd4244', '/wd4267'],
+}
+
 WITH_SIMD = (platform.machine().lower() in ('x86_64', 'amd64')
-             and platform.system() in ('Linux', 'Darwin')
+             and platform.system() in ('Linux', 'Darwin', 'Windows')
+             and not (platform.system() == 'Windows' and sys.maxsize < 2**32)  # 32-bit Python
              and not os.environ.get('OT1D_NO_SIMD'))
 
 
 class BuildExtSIMD(build_ext):
     def build_extension(self, ext):
-        if WITH_SIMD and self.compiler.compiler_type == 'unix':
-            for src, flags, macro in SIMD_UNITS:
+        ctype = self.compiler.compiler_type
+        if WITH_SIMD and ctype in SIMD_ARGS:
+            for src, gcc_flags, msvc_flags, macro in SIMD_UNITS:
+                flags = msvc_flags if ctype == 'msvc' else gcc_flags
                 try:
                     objs = self.compiler.compile([src], output_dir=self.build_temp, include_dirs=['./'],
-                                                 extra_postargs=['-std=c++17', '-O2', '-DNDEBUG'] + flags)
+                                                 extra_postargs=SIMD_ARGS[ctype] + flags)
                 except Exception as e:
                     warnings.warn('building OT1D without {}: {}'.format(src, e))
                     continue
                 # Linked after the main object (and AVX2 before AVX-512): for any inline
                 # function compiled in several files, the linker keeps the first copy,
-                # which is safe on every CPU that can reach it.
+                # which is safe on every CPU that can reach it. The MSVC linker does
+                # the same as the GNU one: it keeps the first copy on its command line.
                 ext.extra_objects = list(ext.extra_objects or []) + objs
                 ext.define_macros = list(ext.define_macros or []) + [(macro, None)]
         build_ext.build_extension(self, ext)
