@@ -1,7 +1,10 @@
 include *.pxd
-include *.pyd
 include *.h
+include LICENSE
 include OT1D_test.py
+include test_wrapper.py
+include test_reference.py
+include reference_prototype.py
 include basic_test.py
 include OT1D.hpp
 include ot1d_avx512.cpp

@@ -25,7 +25,8 @@ LD_ARGS = ['-O2', '-lm', '-pthread', '-fno-wrapv']
 if platform.system() == 'Windows':
     # Compiler options: 
     # https://docs.microsoft.com/en-us/cpp/build/reference/openmp-enable-openmp-2-0-support
-    CC_ARGS = ['/std:c++14', '/arch:AVX2', '/O2']
+    # No /arch:AVX2: the module must run on every x86-64 CPU
+    CC_ARGS = ['/std:c++14', '/O2', '/EHsc', '/DNDEBUG']
     LD_ARGS = []
 
 if platform.system() == 'Darwin':
@@ -85,9 +86,34 @@ setup(
     author='Stefano Gualandi',
     author_email='stefano.gualandi@gmail.com',
     url='https://github.com/stegua/ot1d',
+    license='EUPL-1.2',
+    license_files=['LICENSE'],
+    project_urls={
+        'Source': 'https://github.com/stegua/ot1d',
+        'Changelog': 'https://github.com/stegua/ot1d/blob/main/CHANGELOG.md',
+        'Issues': 'https://github.com/stegua/ot1d/issues',
+    },
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Intended Audience :: Science/Research',
+        'Operating System :: POSIX :: Linux',
+        'Operating System :: MacOS',
+        'Operating System :: Microsoft :: Windows',
+        'Programming Language :: C++',
+        'Programming Language :: Cython',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
+        'Topic :: Scientific/Engineering :: Mathematics',
+    ],
     platforms=['linux', 'macosx', 'windows'],
-    setup_requires=['numpy', 'cython'],
-    install_requires=['numpy', 'cython'],
+    python_requires='>=3.8',
+    install_requires=['numpy'],
     include_dirs=np.get_include(),
     long_description=long_descr,
     long_description_content_type='text/markdown',

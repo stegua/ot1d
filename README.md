@@ -170,6 +170,8 @@ To install `OT1D`, you can run the following command:
 pip3 install ot1d
 ```
 
+Since version 0.5.1, PyPI offers compiled wheels for CPython 3.8 to 3.14 on Linux (x86-64 and aarch64), macOS (Intel and Apple Silicon) and Windows (x86-64), so no compiler is needed there. On the other platforms, `pip` compiles the source distribution, with the prerequisites listed above.
+
 ### Testing
 
 To test the library, you can run the following command:
