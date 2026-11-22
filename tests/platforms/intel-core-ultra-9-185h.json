@@ -8,7 +8,21 @@
   "python": "3.12.9",
   "numpy": "2.5.5",
   "ot1d": "0.5.1.dev0",
-  "simd": "",
-  "date": "",
-  "results": {}
+  "simd": "avx2",
+  "date": "2026-11-22",
+  "results": {
+    "np_sort": 0.13,
+    "reference": 0.2153,
+    "reference_weights": 0.4413,
+    "w1_ref_ecdf": 0.2184,
+    "w2_ref_ecdf": 0.2458,
+    "w1_ref_simplex": 22.25,
+    "w1_sorted_simplex": 8.651,
+    "w1_sorted_ecdf": 123.9,
+    "w1_unsorted": 0.3908,
+    "sort_1": 0.1554,
+    "sort_8": 0.08698,
+    "batch_1": 0.3829,
+    "batch_8": 0.08245
+  }
 }

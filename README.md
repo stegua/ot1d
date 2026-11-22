@@ -306,21 +306,21 @@ The table below gives the timings of the same short benchmark ([bench_platform.p
 | System | macOS 15.6 | Windows 11 | Ubuntu 22.04.5 LTS |
 | Compiler | Apple Clang 17.0 | MSVC 19.52 | GCC 13.4 |
 | Python, NumPy | 3.15.2 | 3.12.9, 2.5.5 | 3.12.12, 2.2.6 |
-| SIMD sorting | none | to be measured | avx512 |
-| Version of ot1d, date | 0.5.1.dev0, 2026-11-22 | to be measured | 0.5.1.dev0, 2026-11-22 |
-| `np.sort(x)`, 10^7 values (s) | 0.299 | to be measured | 0.0837 |
-| `ot1d.parasort(x)`, 10^7 values, 1 thread (s) | 0.181 | to be measured | 0.0636 |
-| `ot1d.parasort(x, threads=8)` (s) | 0.039 | to be measured | 0.0541 |
-| `ot1d.reference(x)`, 10^7 points (s) | 0.211 | to be measured | 0.115 |
-| `ot1d.reference(x, A)`, with weights (s) | 0.716 | to be measured | 0.318 |
-| `w1_reference`, 10^4 against 10^7 points, `'ecdf'` (ms) | 0.094 | to be measured | 0.0713 |
-| `w2_reference`, same sizes, `'ecdf'` (ms) | 0.092 | to be measured | 0.0526 |
-| `w1_reference`, same sizes, `'simplex'` (ms) | 9.58 | to be measured | 10.8 |
-| `w1(x, y, sorting=False)`, 10^7 sorted points each (ms) | 1.25 | to be measured | 9.2 |
-| `w1(x, y, method='ecdf', sorting=False)` (ms) | 43.2 | to be measured | 83.6 |
-| `w1(x, y)`, 10^7 unsorted points each, 1 thread (s) | 0.205 | to be measured | 0.264 |
-| `w1_batch`, per sample of 10^4 points, 1 thread (ms) | 0.18 | to be measured | 0.0785 |
-| `w1_batch`, per sample, 8 threads (ms) | 0.029 | to be measured | 0.0195 |
+| SIMD sorting | none | avx2 | avx512 |
+| Version of ot1d, date | 0.5.1.dev0, 2026-11-22 | 0.5.1.dev0, 2026-11-22 | 0.5.1.dev0, 2026-11-22 |
+| `np.sort(x)`, 10^7 values (s) | 0.299 | 0.13 | 0.0837 |
+| `ot1d.parasort(x)`, 10^7 values, 1 thread (s) | 0.181 | 0.155 | 0.0636 |
+| `ot1d.parasort(x, threads=8)` (s) | 0.039 | 0.087 | 0.0541 |
+| `ot1d.reference(x)`, 10^7 points (s) | 0.211 | 0.215 | 0.115 |
+| `ot1d.reference(x, A)`, with weights (s) | 0.716 | 0.441 | 0.318 |
+| `w1_reference`, 10^4 against 10^7 points, `'ecdf'` (ms) | 0.094 | 0.218 | 0.0713 |
+| `w2_reference`, same sizes, `'ecdf'` (ms) | 0.092 | 0.246 | 0.0526 |
+| `w1_reference`, same sizes, `'simplex'` (ms) | 9.58 | 22.2 | 10.8 |
+| `w1(x, y, sorting=False)`, 10^7 sorted points each (ms) | 1.25 | 8.65 | 9.2 |
+| `w1(x, y, method='ecdf', sorting=False)` (ms) | 43.2 | 124 | 83.6 |
+| `w1(x, y)`, 10^7 unsorted points each, 1 thread (s) | 0.205 | 0.391 | 0.264 |
+| `w1_batch`, per sample of 10^4 points, 1 thread (ms) | 0.18 | 0.383 | 0.0785 |
+| `w1_batch`, per sample, 8 threads (ms) | 0.029 | 0.0824 | 0.0195 |
 <!-- platforms: end -->
 
 Each column is written by the machine itself: after a checkout, `bash tests/check_platform.sh --save` (on Windows, `tests\check_platform.ps1 -Save`) runs the tests and the benchmark, records the timings in `tests/platforms/` and rebuilds this table. With the package already installed, `python tests/bench_platform.py --save` does only the last two steps.
