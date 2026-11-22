@@ -194,31 +194,31 @@ def Test3(N = 500000, samples=30, threads=8):
     print()
 
     print("Testing W1, samples of deltas, n=m")
-    print("Scipy: average time =", round(Ls[1]/samples, 3),
+    print("Scipy: average time =", round(Ls[1]/samples, 4),
           "speedup =", round(Ls[1]/Ls[3], 1))
-    print("POT  : average time =", round(Ls[2]/samples, 3),
+    print("POT  : average time =", round(Ls[2]/samples, 4),
           "speedup =",round(Ls[2]/Ls[3], 1))
-    print("OT1D : average time =", round(Ls[3]/samples, 3),
+    print("OT1D : average time =", round(Ls[3]/samples, 4),
           "speedup =",round(Ls[3]/Ls[3], 1))
 
     print("\nTesting W2, samples of deltas, n=m")
-    print("POT  : average time =", round(Ls[4]/samples, 3),
+    print("POT  : average time =", round(Ls[4]/samples, 4),
           "speedup =", round(Ls[4]/Ls[5], 1))
-    print("OT1D : average time =", round(Ls[5]/samples, 3),
+    print("OT1D : average time =", round(Ls[5]/samples, 4),
           "speedup =", round(Ls[5]/Ls[5], 1))
 
     print("\nTesting W1, samples with weights")
-    print("Scipy: average time =", round(Ls[6]/samples, 3),
+    print("Scipy: average time =", round(Ls[6]/samples, 4),
           "speedup =", round(Ls[6]/Ls[8], 1))
-    print("POT  : average time =", round(Ls[7]/samples, 3),
+    print("POT  : average time =", round(Ls[7]/samples, 4),
           "speedup =", round(Ls[7]/Ls[8], 1))
-    print("OT1D : average time =", round(Ls[8]/samples, 3),
+    print("OT1D : average time =", round(Ls[8]/samples, 4),
           "speedup =", round(Ls[8]/Ls[8], 1))
 
     print("\nTesting W2, samples with weights")
-    print("POT  : average time =", round(Ls[9]/samples, 3),
+    print("POT  : average time =", round(Ls[9]/samples, 4),
           "speedup =", round(Ls[9]/Ls[10], 1))
-    print("OT1D : average time =", round(Ls[10]/samples, 3),
+    print("OT1D : average time =", round(Ls[10]/samples, 4),
           "speedup =", round(Ls[10]/Ls[10], 1))
 
 
@@ -295,31 +295,31 @@ def Test4(N = 500000, samples=30, threads=8):
     print('Parallel sorting: time =', round(Ls[0]/samples, 3), 'sec\n')
 
     print("Testing W1, samples of deltas, n=m")
-    print("Scipy: average time =", round(Ls[1]/samples, 3),
+    print("Scipy: average time =", round(Ls[1]/samples, 4),
           "speedup =", round(Ls[1]/Ls[3], 1))
-    print("POT  : average time =", round(Ls[2]/samples, 3),
+    print("POT  : average time =", round(Ls[2]/samples, 4),
           "speedup =",round(Ls[2]/Ls[3], 1))
-    print("OT1D : average time =", round(Ls[3]/samples, 3),
+    print("OT1D : average time =", round(Ls[3]/samples, 4),
           "speedup =",round(Ls[3]/Ls[3], 1))
 
     print("\nTesting W2, samples of deltas, n=m")
-    print("POT  : average time =", round(Ls[4]/samples, 3),
+    print("POT  : average time =", round(Ls[4]/samples, 4),
           "speedup =", round(Ls[4]/Ls[5], 1))
-    print("OT1D : average time =", round(Ls[5]/samples, 3),
+    print("OT1D : average time =", round(Ls[5]/samples, 4),
           "speedup =", round(Ls[5]/Ls[5], 1))
 
     print("\nTesting W1, samples with weights")
-    print("Scipy: average time =", round(Ls[6]/samples, 3),
+    print("Scipy: average time =", round(Ls[6]/samples, 4),
           "speedup =", round(Ls[6]/Ls[8], 1))
-    print("POT  : average time =", round(Ls[7]/samples, 3),
+    print("POT  : average time =", round(Ls[7]/samples, 4),
           "speedup =", round(Ls[7]/Ls[8], 1))
-    print("OT1D : average time =", round(Ls[8]/samples, 3),
+    print("OT1D : average time =", round(Ls[8]/samples, 4),
           "speedup =", round(Ls[8]/Ls[8], 1))
 
     print("\nTesting W2, samples with weights")
-    print("POT  : average time =", round(Ls[9]/samples, 3),
+    print("POT  : average time =", round(Ls[9]/samples, 4),
           "speedup =", round(Ls[9]/Ls[10], 1))
-    print("OT1D : average time =", round(Ls[10]/samples, 3),
+    print("OT1D : average time =", round(Ls[10]/samples, 4),
           "speedup =", round(Ls[10]/Ls[10], 1))
 
 def Test5(threads=8, seed=13):

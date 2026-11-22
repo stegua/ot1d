@@ -110,11 +110,13 @@ Time per sample of 10<sup>4</sup> points (lognormal data, 1 thread, Intel Xeon w
 
 | reference size | `w1_reference` (ecdf) | `w2_reference` (ecdf) | `OT1D`, reference sorted once | [NannyML](https://github.com/NannyML/nannyml) binned W1 (10<sup>4</sup> bins, approximate) |
 |---:|---:|---:|---:|---:|
-| 10<sup>5</sup> | 0.054 ms | 0.051 ms | 0.16 ms | 0.17 ms |
-| 10<sup>6</sup> | 0.057 ms | 0.051 ms | 1.7 ms | 0.13 ms |
-| 10<sup>7</sup> | 0.074 ms | 0.052 ms | 48 ms | 0.14 ms |
+| 10<sup>5</sup> | 0.056 ms | 0.055 ms | 0.13 ms | 0.16 ms |
+| 10<sup>6</sup> | 0.067 ms | 0.051 ms | 1.1 ms | 0.16 ms |
+| 10<sup>7</sup> | 0.076 ms | 0.051 ms | 10 ms | 0.13 ms |
 
 Preparing the reference of 10<sup>7</sup> points takes 0.11 seconds (sorting alone takes 0.08 seconds), or 0.06 seconds if it is already sorted (`sorting=False`). Weights make the queries slower, because the quantile positions are no longer integers: against the reference of 10<sup>7</sup> points, a weighted sample takes 0.20 ms (W1) and 0.21 ms (W2); with a weighted reference, a sample takes 0.30 ms without weights and 0.50 ms with weights (preparing that reference takes 0.32 seconds).
+
+The third column is the simplex merge of the two sorted samples, which reads all the points of the reference: since version 0.5.1 it no longer copies them (it took 48 ms at 10<sup>7</sup> points). When both samples are large and already sorted, this merge is the faster method: two sorted samples of 10<sup>7</sup> points take 8.5 ms with `ot1d.w1(x, y, sorting=False)`, and 84 ms with `method='ecdf'`.
 
 On Linux, the arrays of a large reference are allocated on transparent huge pages (2 MB), when the system allows them on request (the setting `madvise` or `always` in `/sys/kernel/mm/transparent_hugepage/enabled`, the default of the main distributions). The timings above use them; with standard 4 KB pages, preparing the reference of 10<sup>7</sup> points takes 0.15 seconds, and a sample about 0.10 ms. The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
 
@@ -226,53 +228,52 @@ TEST 5 checks that the Wasserstein distance of order 2 computed by OT1D matches 
 For OT1D using 8 threads
 
 running test . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
-
 Testing W1, samples of deltas, n=m
-Scipy: average time = 0.18 speedup = 9.7
-POT  : average time = 0.168 speedup = 9.0
-OT1D : average time = 0.019 speedup = 1.0
+Scipy: average time = 0.1335 speedup = 17.9
+POT  : average time = 0.0897 speedup = 12.0
+OT1D : average time = 0.0074 speedup = 1.0
 
 Testing W2, samples of deltas, n=m
-POT  : average time = 0.124 speedup = 6.6
-OT1D : average time = 0.019 speedup = 1.0
+POT  : average time = 0.0886 speedup = 11.9
+OT1D : average time = 0.0075 speedup = 1.0
 
 Testing W1, samples with weights
-Scipy: average time = 0.193 speedup = 5.1
-POT  : average time = 0.165 speedup = 4.3
-OT1D : average time = 0.038 speedup = 1.0
+Scipy: average time = 0.147 speedup = 5.8
+POT  : average time = 0.0979 speedup = 3.8
+OT1D : average time = 0.0255 speedup = 1.0
 
 Testing W2, samples with weights
-POT  : average time = 0.12 speedup = 3.1
-OT1D : average time = 0.039 speedup = 1.0
+POT  : average time = 0.0938 speedup = 3.7
+OT1D : average time = 0.0252 speedup = 1.0
 
 --------------- TEST 4: Sorted input (average runtime) --------------------
 For OT1D using 8 threads
 
 running test . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
-Parallel sorting: time = 0.027 sec
+Parallel sorting: time = 0.011 sec
 
 Testing W1, samples of deltas, n=m
-Scipy: average time = 0.077 speedup = 30.1
-POT  : average time = 0.116 speedup = 45.5
-OT1D : average time = 0.003 speedup = 1.0
+Scipy: average time = 0.0603 speedup = 154.3
+POT  : average time = 0.0793 speedup = 202.9
+OT1D : average time = 0.0004 speedup = 1.0
 
 Testing W2, samples of deltas, n=m
-POT  : average time = 0.09 speedup = 35.5
-OT1D : average time = 0.003 speedup = 1.0
+POT  : average time = 0.0799 speedup = 198.1
+OT1D : average time = 0.0004 speedup = 1.0
 
 Testing W1, samples with weights
-Scipy: average time = 0.087 speedup = 6.7
-POT  : average time = 0.117 speedup = 9.0
-OT1D : average time = 0.013 speedup = 1.0
+Scipy: average time = 0.069 speedup = 12.4
+POT  : average time = 0.0867 speedup = 15.6
+OT1D : average time = 0.0056 speedup = 1.0
 
 Testing W2, samples with weights
-POT  : average time = 0.087 speedup = 6.5
-OT1D : average time = 0.013 speedup = 1.0
+POT  : average time = 0.0879 speedup = 16.7
+OT1D : average time = 0.0053 speedup = 1.0
 
 --------------- TEST 5: W2 against POT (correctness) --------------------
 Comparing OT1D with sqrt(POT), since POT returns W2^2
 
-m =       1, n =       1, weights = False | POT: z = 4.98342038 time = 0.0002 | OT1D: z = 4.98342038 time = 0.0000
+m =       1, n =       1, weights = False | POT: z = 4.98342038 time = 0.0001 | OT1D: z = 4.98342038 time = 0.0000
 m =       1, n =       1, weights = True  | POT: z = 4.98342038 time = 0.0001 | OT1D: z = 4.98342038 time = 0.0000
 m =       2, n =       3, weights = False | POT: z = 3.46826482 time = 0.0001 | OT1D: z = 3.46826482 time = 0.0000
 m =       2, n =       3, weights = True  | POT: z = 4.10324470 time = 0.0001 | OT1D: z = 4.10324470 time = 0.0000
@@ -281,15 +282,15 @@ m =      10, n =      10, weights = True  | POT: z = 2.93894066 time = 0.0001 | 
 m =      17, n =       5, weights = False | POT: z = 3.18112337 time = 0.0001 | OT1D: z = 3.18112337 time = 0.0000
 m =      17, n =       5, weights = True  | POT: z = 3.40960305 time = 0.0001 | OT1D: z = 3.40960305 time = 0.0000
 m =    1000, n =    1000, weights = False | POT: z = 3.18595988 time = 0.0002 | OT1D: z = 3.18595988 time = 0.0000
-m =    1000, n =    1000, weights = True  | POT: z = 3.23862020 time = 0.0002 | OT1D: z = 3.23862020 time = 0.0001
-m =    1000, n =     777, weights = False | POT: z = 3.12133828 time = 0.0002 | OT1D: z = 3.12133828 time = 0.0000
-m =    1000, n =     777, weights = True  | POT: z = 3.08777081 time = 0.0002 | OT1D: z = 3.08777081 time = 0.0001
-m =  100000, n =  100000, weights = False | POT: z = 3.16226321 time = 0.0168 | OT1D: z = 3.16226321 time = 0.0061
-m =  100000, n =  100000, weights = True  | POT: z = 3.15995238 time = 0.0175 | OT1D: z = 3.15995238 time = 0.0067
-m =  100000, n =   65537, weights = False | POT: z = 3.15278684 time = 0.0136 | OT1D: z = 3.15278684 time = 0.0041
-m =  100000, n =   65537, weights = True  | POT: z = 3.15374537 time = 0.0181 | OT1D: z = 3.15374537 time = 0.0058
-m = 5000000, n = 5000000, weights = False | POT: z = 3.16297776 time = 1.9577 | OT1D: z = 3.16297776 time = 0.1855
-m = 5000000, n = 5000000, weights = True  | POT: z = 3.16249183 time = 1.9836 | OT1D: z = 3.16249183 time = 0.4073
+m =    1000, n =    1000, weights = True  | POT: z = 3.23862020 time = 0.0002 | OT1D: z = 3.23862020 time = 0.0000
+m =    1000, n =     777, weights = False | POT: z = 3.12133828 time = 0.0001 | OT1D: z = 3.12133828 time = 0.0000
+m =    1000, n =     777, weights = True  | POT: z = 3.08777081 time = 0.0001 | OT1D: z = 3.08777081 time = 0.0000
+m =  100000, n =  100000, weights = False | POT: z = 3.16226321 time = 0.0127 | OT1D: z = 3.16226321 time = 0.0009
+m =  100000, n =  100000, weights = True  | POT: z = 3.15995238 time = 0.0145 | OT1D: z = 3.15995238 time = 0.0039
+m =  100000, n =   65537, weights = False | POT: z = 3.15278684 time = 0.0092 | OT1D: z = 3.15278684 time = 0.0008
+m =  100000, n =   65537, weights = True  | POT: z = 3.15374537 time = 0.0105 | OT1D: z = 3.15374537 time = 0.0031
+m = 5000000, n = 5000000, weights = False | POT: z = 3.16297776 time = 1.2020 | OT1D: z = 3.16297776 time = 0.0912
+m = 5000000, n = 5000000, weights = True  | POT: z = 3.16249183 time = 1.2938 | OT1D: z = 3.16249183 time = 0.3450
 
 All W2 values match POT: max relative error = 1.42e-11
 ```
