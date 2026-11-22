@@ -27,7 +27,12 @@ static int checks = 0;
 // Counts the bytes allocated with operator new, to check that the functions
 // called on sorted input read the arrays of the caller without copying them.
 // Not under the sanitizers, which replace the allocator themselves.
-#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#if defined(__has_feature)  // Clang
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define OT1D_TEST_SANITIZER
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || defined(OT1D_TEST_SANITIZER)
 #define COUNT_ALLOCATIONS 0
 #else
 #define COUNT_ALLOCATIONS 1
