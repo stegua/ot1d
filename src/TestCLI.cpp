@@ -10,10 +10,6 @@
  *    https://github.com/orlp/pdqsort
  *    (Zlib license)
  *
- * - Efficient parallel sorting algorithm (C++11)
- *    https://github.com/baserinia/parallel-sort
- *    (GPL-3.0 License)
- *    
  *
  * NOTE: 
  *   - https://encyclopediaofmath.org/index.php?title=Wasserstein_metric

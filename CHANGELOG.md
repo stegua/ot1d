@@ -2,6 +2,15 @@
 
 ## 0.5.1 (in development)
 
+### Changed
+* The parallel sort (`threads > 1`) is now part of `OT1D.hpp`: one block per thread, sorted in
+  parallel and then merged in parallel. It replaces the library parasort, the only GPL v3 file of
+  the package, which is removed. On 10^7 values with 8 threads and without SIMD it takes 70 ms
+  instead of 112 ms. With SIMD sorting, the threads are used only where they help: values from
+  5 million points and 4 threads (10^7 values: 44 ms with 8 threads, 66 ms with one), and items
+  with a plan; pairs (value, weight) are sorted by one thread, which was already faster than the
+  previous parallel sort (156 ms instead of 236 ms with 8 threads).
+
 ### Fixed
 * `method='ecdf'`: W1 could be slightly negative (a few 1e-17 times the scale of the data) on
   samples very close to the reference, for instance drawn from its points. A sum that rounding

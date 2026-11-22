@@ -485,7 +485,7 @@ _simd_level = OT1D_simd_supported()
 
 def simd():
     """SIMD instruction set used for sorting: 'avx512', 'avx2' or 'none'
-    (pdqsort/parasort). By default, the best one supported by the CPU."""
+    (pdqsort). By default, the best one supported by the CPU."""
     return _SIMD_LEVELS[_simd_level]
 
 

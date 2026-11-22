@@ -37,7 +37,7 @@ if platform.system() == 'Darwin':
 
 # Optional SIMD sorting (x86-simd-sort, AVX2 and AVX-512). Only ot1d_avx2.cpp and
 # ot1d_avx512.cpp are compiled with SIMD flags; OT1D.hpp selects at runtime the
-# best one supported by the CPU, or falls back to pdqsort/parasort, so the module
+# best one supported by the CPU, or falls back to pdqsort, so the module
 # runs on every x86-64 CPU. Set OT1D_NO_SIMD=1 to build without them.
 SIMD_UNITS = [  # (source, flags, macro): AVX2 first, see the link order below
     ('ot1d_avx2.cpp', ['-mavx2'], 'OT1D_USE_AVX2'),

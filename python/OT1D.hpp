@@ -10,10 +10,6 @@
  *    https://github.com/orlp/pdqsort
  *    (Zlib license)
  *
- * - Efficient parallel sorting algorithm (C++11)
- *    https://github.com/baserinia/parallel-sort
- *    (GPL-3.0 License)
- *
  * - AVX-512 and AVX2 sorting (optional, C++17), see ot1d_simdsort.inc
  *    https://github.com/intel/x86-simd-sort
  *    (BSD 3-Clause License)
@@ -68,11 +64,13 @@
 #include <atomic>
 #include <climits>
 #include <exception>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -85,9 +83,9 @@
 // https://github.com/orlp/pdqsort
 #include "pdqsort.h"
 
-// Efficient parallel sorting algorithm (C++11)
-// https://github.com/baserinia/parallel-sort
-#include "parasort.h"
+// Hook to sort an array with a faster (SIMD) algorithm: it returns false if it
+// did nothing. The default does nothing; see the specializations below.
+template <typename T> inline bool _simd_sort(size_t, T*) { return false; }
 
 #if defined(OT1D_USE_AVX512) || defined(OT1D_USE_AVX2)
 #define OT1D_USE_SIMD
@@ -220,13 +218,12 @@ struct dbl_w_t {
     double xi;
     double ai;
 
-    // Used by parasort_mu to partition the buckets
     bool operator < ( const dbl_w_t &r ) const { return xi < r.xi; }
 };
 
 // SIMD (AVX-512 or AVX2) sorting by the support point (xi): specializations of the hook
-// _simd_sort of parasort.h, used both for a whole array (single thread) and for
-// each bucket of parasort (multiple threads). Items are sorted with a key-value
+// _simd_sort, used both for a whole array (single thread) and for each block of
+// the parallel sort (multiple threads). Items are sorted with a key-value
 // sort on separate arrays (keys = xi, values = payload or position), then rebuilt.
 // They return false if SIMD sorting is not available, and the caller uses pdqsort.
 #ifdef OT1D_USE_SIMD
@@ -278,14 +275,89 @@ template <> inline bool _simd_sort<dbl_pair_idx_t>(size_t n, dbl_pair_idx_t* v) 
 
 namespace ot1d_detail {
 
-// Below this size the parallel sort is not worth the thread overhead
-// (and parasort needs at least one element per thread).
-const int PARASORT_MIN_SIZE = 10000;
+// Calls f(0), ..., f(k-1), each in its own thread (the last one in the calling
+// thread). If a thread cannot be started, the calling thread does its work.
+// The first exception thrown by a call is rethrown after all threads ended.
+template <typename F>
+inline void run_threads(int k, F f) {
+    std::vector<std::exception_ptr> errs((size_t)k);
+    auto job = [&](int t) {
+        try { f(t); } catch (...) { errs[t] = std::current_exception(); }
+    };
+    std::vector<std::thread> pool;
+    pool.reserve((size_t)k);
+    for (int t = 0; t + 1 < k; t++) {
+        try { pool.emplace_back(job, t); } catch (const std::system_error&) { job(t); }
+    }
+    job(k - 1);
+    for (auto& th : pool) th.join();
+    for (auto& e : errs)
+        if (e) std::rethrow_exception(e);
+}
 
-// With SIMD sorting, a single thread sorts plain values faster than parasort
-// with any number of threads; for items (key-value sort), parasort with SIMD
-// buckets pays off only on large arrays (measured on a Xeon w9-3495X).
-const int PARASORT_MIN_SIZE_SIMD = 1000000;
+// Number of elements of the sorted array a (size na) among the first r elements
+// of the merge of a and b (size nb), with the elements of a first on ties.
+template <typename T, typename Less>
+inline int64_t merge_split(const T* a, int64_t na, const T* b, int64_t nb, int64_t r, Less less) {
+    int64_t lo = r > nb ? r - nb : 0, hi = r < na ? r : na;
+    while (lo < hi) {
+        int64_t i = lo + (hi - lo) / 2, j = r - i;  // j >= 1, since i < hi <= r
+        if (!less(b[j - 1], a[i])) lo = i + 1;      // a[i] is among the first r
+        else hi = i;
+    }
+    return lo;
+}
+
+// Parallel sort of v[0..n): the array is cut into `threads` blocks, each sorted
+// in its own thread by sort_block(pointer, size); then neighbouring blocks are
+// merged, level by level, between v and a buffer. Every merge is cut by rank
+// (merge_split) into independent pieces, so that all the threads work at every
+// level, also on the last one (a single merge of two halves).
+template <typename T, typename Less, typename SortBlock>
+inline void parallel_sort(T* v, int64_t n, int threads, Less less, SortBlock sort_block) {
+    const int k = threads;
+    std::vector<int64_t> cut((size_t)k + 1);
+    for (int i = 0; i <= k; i++) cut[i] = (int64_t)((double)n * i / k);
+    cut[k] = n;
+    run_threads(k, [&](int t) { sort_block(v + cut[t], (size_t)(cut[t + 1] - cut[t])); });
+
+    struct piece_t { int64_t a0, a1, b0, b1, out; };
+    // Not initialized: its pages are first touched by the threads that merge
+    std::unique_ptr<T, void (*)(void*)> buffer((T*)std::malloc((size_t)n * sizeof(T)), std::free);
+    if (!buffer) throw std::bad_alloc();
+    T* src = v;
+    T* dst = buffer.get();
+    std::vector<piece_t> pieces;
+    for (int w = 1; w < k; w *= 2) {            // blocks of w runs are merged in pairs
+        pieces.clear();
+        const int pairs = (k + 2 * w - 1) / (2 * w);
+        const int parts = k / pairs > 1 ? k / pairs : 1;
+        for (int i = 0; i < k; i += 2 * w) {
+            const int64_t a0 = cut[i], mid = cut[std::min(i + w, k)], b1 = cut[std::min(i + 2 * w, k)];
+            const int64_t na = mid - a0, nb = b1 - mid;
+            int64_t pa = 0, pr = 0;             // elements of a, and in total, already assigned
+            for (int q = 1; q <= parts; q++) {
+                const int64_t r = (q == parts) ? na + nb : (int64_t)((double)(na + nb) * q / parts);
+                const int64_t ia = merge_split(src + a0, na, src + mid, nb, r, less);
+                pieces.push_back({a0 + pa, a0 + ia, mid + (pr - pa), mid + (r - ia), a0 + pr});
+                pa = ia;
+                pr = r;
+            }
+        }
+        const int np = (int)pieces.size();
+        const T* from = src;
+        T* to = dst;
+        run_threads(std::min(k, np), [&](int t) {
+            for (int q = t; q < np; q += k) {
+                const piece_t& c = pieces[q];
+                std::merge(from + c.a0, from + c.a1, from + c.b0, from + c.b1, to + c.out, less);
+            }
+        });
+        std::swap(src, dst);
+    }
+    if (src != v)
+        run_threads(k, [&](int t) { std::copy(src + cut[t], src + cut[t + 1], v + cut[t]); });
+}
 
 inline bool use_simd() {
 #ifdef OT1D_USE_SIMD
@@ -295,38 +367,57 @@ inline bool use_simd() {
 #endif
 }
 
-inline bool use_parasort(int n, int threads) {
-    return threads > 1 && n >= (use_simd() ? PARASORT_MIN_SIZE_SIMD : PARASORT_MIN_SIZE);
-}
+// What is sorted: plain values, (key, value) pairs of doubles, or items that
+// carry their position (for the plans).
+enum SortKind { SORT_VALUES, SORT_PAIRS, SORT_INDEXED };
 
-inline bool use_parasort(int64_t n, int threads) {
-    return n <= INT_MAX && use_parasort((int)n, threads);
+template <typename T> inline SortKind sort_kind(const T*) { return SORT_INDEXED; }
+inline SortKind sort_kind(const dbl_pair_t*) { return SORT_PAIRS; }
+inline SortKind sort_kind(const dbl_w_t*) { return SORT_PAIRS; }
+
+// Number of threads used to sort n elements (1: no parallel sort). The parallel
+// sort pays off from 200,000 elements. With SIMD sorting a single thread is
+// already close to the speed of the memory: for values the threads help only
+// from 5 million elements and 4 threads, for pairs they do not help
+// (measured on a Xeon w9-3495X, see CHANGELOG.md, version 0.5.1).
+const int64_t PARALLEL_MIN_SIZE = 200000;
+const int64_t PARALLEL_MIN_SIZE_SIMD_VALUES = 5000000;
+
+inline int sort_threads(int64_t n, int threads, SortKind kind) {
+    if (threads < 2 || n < PARALLEL_MIN_SIZE) return 1;
+    if (use_simd()) {
+        if (kind == SORT_PAIRS) return 1;
+        if (kind == SORT_VALUES && (threads < 4 || n < PARALLEL_MIN_SIZE_SIMD_VALUES)) return 1;
+    }
+    return (int)std::min<int64_t>(threads, n / 1024);  // blocks of at least 1024 elements
 }
 
 inline void sort_values(int64_t n, double* x, int threads) {
-    if (n <= 1 || _simd_sort((size_t)n, x))
-        return;
-    if (use_parasort(n, threads))
-        parasort((int)n, x, threads);
-    else
-        pdqsort(x, x + n);
+    if (n <= 1) return;
+    auto block = [](double* p, size_t len) {
+        if (!_simd_sort(len, p)) pdqsort(p, p + len);
+    };
+    const int t = sort_threads(n, threads, SORT_VALUES);
+    if (t > 1) parallel_sort(x, n, t, std::less<double>(), block);
+    else block(x, (size_t)n);
 }
 
-// parasort sorts each bucket with _simd_sort (AVX-512 or AVX2, if available)
+// Sorts the items by cmp. With SIMD sorting, cmp must compare the member xi.
 template <typename T, typename Cmp>
 inline void sort_items(std::vector<T>& v, Cmp cmp, int threads) {
-    int n = (int)v.size();
-    if (use_parasort(n, threads))
-        parasort_mu(n, v.data(), Cmp(cmp), threads);  // parasort_mu needs an rvalue
-    else if (!_simd_sort(v.size(), v.data()))
-        pdqsort(v.begin(), v.end(), cmp);
+    auto block = [&](T* p, size_t len) {
+        if (!_simd_sort(len, p)) pdqsort(p, p + len, cmp);
+    };
+    const int t = sort_threads((int64_t)v.size(), threads, sort_kind(v.data()));
+    if (t > 1) parallel_sort(v.data(), (int64_t)v.size(), t, cmp, block);
+    else block(v.data(), v.size());
 }
 
 // Sorts the pairs (key[i], val[i]) by key; tmp is a reusable buffer.
 inline void sort_pairs(int64_t n, double* key, double* val, int threads, std::vector<dbl_pair_t>& tmp) {
     if (n <= 1) return;
 #ifdef OT1D_USE_SIMD
-    if (use_simd() && !use_parasort(n, threads)) {
+    if (use_simd()) {
         ot1d_simd::sort_kv(key, val, (size_t)n);  // in place, no copies
         return;
     }
@@ -334,10 +425,7 @@ inline void sort_pairs(int64_t n, double* key, double* val, int threads, std::ve
     tmp.resize((size_t)n);
     for (int64_t i = 0; i < n; i++) tmp[i] = dbl_pair_t(key[i], val[i]);
     auto cmp = [](const dbl_pair_t& v, const dbl_pair_t& w) { return v.first < w.first; };
-    if (n <= INT_MAX)
-        sort_items(tmp, cmp, threads);
-    else                                   // sort_items and parasort use int sizes
-        pdqsort(tmp.begin(), tmp.end(), cmp);
+    sort_items(tmp, cmp, threads);
     for (int64_t i = 0; i < n; i++) {
         key[i] = tmp[i].first;
         val[i] = tmp[i].second;
@@ -529,7 +617,7 @@ inline double weighted(int m, int n, const double* x, const double* y, const dou
 } // namespace ot1d_detail
 
 // SIMD sorting level supported (compiled in and supported by the CPU):
-// 0 = none (pdqsort/parasort), 1 = AVX2, 2 = AVX-512
+// 0 = none (pdqsort), 1 = AVX2, 2 = AVX-512
 inline int OT1D_simd_supported() {
 #ifdef OT1D_USE_SIMD
     return ot1d_simd::cpu_level();

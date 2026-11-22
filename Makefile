@@ -63,7 +63,7 @@ sanitize: ${OUT_DIR} tests/test_ot1d.cpp ${INCLUDE}/OT1D.hpp
 
 # Build and Test Python wrapper
 buildpython:
-	cp ${INCLUDE}/OT1D.hpp ${INCLUDE}/parasort.h ${INCLUDE}/pdqsort.h ${INCLUDE}/ot1d_simdsort.inc ${INCLUDE}/ot1d_avx2.cpp ${INCLUDE}/ot1d_avx512.cpp ./python/
+	cp ${INCLUDE}/OT1D.hpp ${INCLUDE}/pdqsort.h ${INCLUDE}/ot1d_simdsort.inc ${INCLUDE}/ot1d_avx2.cpp ${INCLUDE}/ot1d_avx512.cpp ./python/
 	rm -rf ./python/x86-simd-sort && cp -r ${INCLUDE}/x86-simd-sort ./python/
 	cp README.md ./python/
 	cd python && python3 setup.py build_ext --inplace && python3 basic_test.py && python3 test_wrapper.py

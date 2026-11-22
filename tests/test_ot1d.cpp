@@ -194,6 +194,60 @@ static void test_input_not_modified() {
     CHECK(x == x0 && y == y0 && a == a0 && b == b0, "inputs were modified");
 }
 
+// The parallel sort, called directly so that small arrays also use the threads:
+// sizes around the block boundaries, ties, sorted and reversed input, and more
+// threads than elements.
+static void test_parallel_sort(std::mt19937& gen) {
+    std::uniform_real_distribution<> U(0.0, 1.0);
+    std::uniform_int_distribution<> D(0, 9);
+    auto less_item = [](const dbl_pair_idx_t& v, const dbl_pair_idx_t& w) { return v.xi < w.xi; };
+    const int sizes[] = {1, 2, 3, 7, 8, 9, 63, 64, 65, 1000, 4097, 100003};
+    const int threads[] = {2, 3, 4, 5, 7, 8, 16, 33};
+    for (int n : sizes)
+        for (int t : threads)
+            for (int kind = 0; kind < 4; kind++) {
+                std::vector<double> x(n);
+                for (int i = 0; i < n; i++)
+                    x[i] = kind == 0 ? U(gen) : kind == 1 ? D(gen) : kind == 2 ? i : n - i;
+                std::vector<double> want(x), v(x);
+                std::sort(want.begin(), want.end());
+                ot1d_detail::parallel_sort(v.data(), (int64_t)n, t, std::less<double>(),
+                                           [](double* p, size_t len) { pdqsort(p, p + len); });
+                CHECK(v == want, "parallel_sort values n=%d t=%d kind=%d", n, t, kind);
+
+                std::vector<dbl_pair_idx_t> it;
+                for (int i = 0; i < n; i++) it.emplace_back(x[i], 2.0 * x[i], i);
+                ot1d_detail::parallel_sort(it.data(), (int64_t)n, t, less_item,
+                                           [&](dbl_pair_idx_t* p, size_t len) { pdqsort(p, p + len, less_item); });
+                bool ok = true;
+                std::vector<char> seen(n, 0);
+                for (int i = 0; i < n; i++) {
+                    // Sorted by key, and every item still carries its own data
+                    ok = ok && it[i].xi == want[i] && it[i].i >= 0 && it[i].i < n && x[it[i].i] == it[i].xi &&
+                         it[i].ai == 2.0 * it[i].xi && !seen[it[i].i];
+                    if (it[i].i >= 0 && it[i].i < n) seen[it[i].i] = 1;
+                }
+                CHECK(ok, "parallel_sort items n=%d t=%d kind=%d", n, t, kind);
+            }
+    // Through the public entry points, above the size where the threads are used
+    for (int n : {250000, 6000000}) {
+        std::vector<double> x(n), a(n);
+        for (int i = 0; i < n; i++) { x[i] = (i % 3) ? U(gen) : D(gen); a[i] = x[i] + 1.0; }
+        std::vector<double> want(x);
+        std::sort(want.begin(), want.end());
+        for (int t : {2, 4, 8}) {
+            std::vector<double> v(x), k(x), w(a);
+            ot1d_detail::sort_values(n, v.data(), t);
+            CHECK(v == want, "sort_values n=%d t=%d", n, t);
+            std::vector<dbl_pair_t> tmp;
+            ot1d_detail::sort_pairs(n, k.data(), w.data(), t, tmp);
+            bool ok = k == want;
+            for (int i = 0; ok && i < n; i++) ok = w[i] == k[i] + 1.0;
+            CHECK(ok, "sort_pairs n=%d t=%d", n, t);
+        }
+    }
+}
+
 static void test_unequal_mass() {
     // Total masses 3 and 1.5: only 1.5 is transported (partial plan).
     std::vector<double> x = {0, 1, 2}, y = {0.5, 3}, a = {1, 1, 1}, b = {0.5, 1};
@@ -213,8 +267,8 @@ static void test_unequal_mass() {
 }
 
 #ifdef OT1D_USE_SIMD
-// The SIMD sorting (alone, and inside the buckets of parasort for large inputs)
-// must give the same results as the generic pdqsort/parasort path.
+// The SIMD sorting (alone, and inside the blocks of the parallel sort for large inputs)
+// must give the same results as the generic pdqsort path.
 static void test_simd_level(int level) {
     if (ot1d_simd::set_level(level) != level) {
         printf("SIMD level %d not available: skipping its tests\n", level);
@@ -571,6 +625,7 @@ int main() {
     test_readme_example();
     test_input_not_modified();
     test_unequal_mass();
+    test_parallel_sort(gen);
 #ifdef OT1D_USE_SIMD
     test_simd_level(ot1d_simd::AVX2);
     test_simd_level(ot1d_simd::AVX512);
@@ -584,7 +639,7 @@ int main() {
                 for (int w = 0; w < 2; w++)
                     run_case(gen, m, n, w == 1, t);
 
-    // Large sizes exercise the parallel sort (parasort) path.
+    // Large sizes exercise the parallel sort.
     const int large[] = {10000, 20000, 50001};
     for (int m : large)
         for (int n : large)
