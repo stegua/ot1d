@@ -78,7 +78,7 @@ The parameters of the function are:
 * `B`: the (nonnegative) weights of the second measure. If equal to `None`, all the samples have the same mass. `A` and `B` must be given together. If their total masses differ, a `RuntimeWarning` is issued and only the smaller total mass is transported (partial value and plan).
 * `p`: the order of the Wasserstein distance (`p=1` or `p=2`).
 * `sorting`: if equal to `True`, the function sorts the support points given as input; if equal to `False`, the input must already be sorted.
-* `threads`: the number of threads used by the parallel sorting algorithm (default `1`). Threads only speed up the sorting phase, so they help only on large inputs with `sorting=True`.
+* `threads`: the number of threads used by the parallel sorting algorithm (default `1`). Threads only speed up the sorting phase, so they matter only with `sorting=True`, and only on very large samples. **In most cases you do not need them: keep `threads=1`.** On x86-64 Linux and macOS, where the SIMD sorting is used, the extra threads are ignored for samples of fewer than 5 million points (and with fewer than 4 threads), and for samples with weights of any size; at 10 million points, 8 threads sort in 44 ms instead of 66 ms. Only the functions that return a plan use them earlier, from 200,000 points. Without the SIMD sorting (Windows, ARM, including Apple Silicon), the threads are used from 200,000 points. In `w1_batch` and `w2_batch` the parameter has a different role: the samples are split over the threads, which helps as soon as there are several samples.
 * `plan`: if equal to `True`, the function also returns an optimal transportation plan, as a triple `z, T, W`: the row `T[k] = (i, j)` means that the mass `W[k]` moves from `x[i]` to `y[j]` (see the example [`interpolate.py`](https://github.com/stegua/ot1d/blob/main/python/interpolate.py)).
 
 The first four parameters can be given as numpy arrays (*preferred*) or Python lists.
@@ -116,7 +116,7 @@ Time per sample of 10<sup>4</sup> points (lognormal data, 1 thread, Intel Xeon w
 
 Preparing the reference of 10<sup>7</sup> points takes 0.11 seconds (sorting alone takes 0.08 seconds), or 0.06 seconds if it is already sorted (`sorting=False`). Weights make the queries slower, because the quantile positions are no longer integers: against the reference of 10<sup>7</sup> points, a weighted sample takes 0.20 ms (W1) and 0.21 ms (W2); with a weighted reference, a sample takes 0.30 ms without weights and 0.50 ms with weights (preparing that reference takes 0.32 seconds).
 
-The third column is the simplex merge of the two sorted samples, which reads all the points of the reference: since version 0.5.1 it no longer copies them (it took 48 ms at 10<sup>7</sup> points). When both samples are large and already sorted, this merge is the faster method: two sorted samples of 10<sup>7</sup> points take 8.5 ms with `ot1d.w1(x, y, sorting=False)`, and 84 ms with `method='ecdf'`.
+The third column is the simplex merge of the two sorted samples, which reads all the points of the reference: since version 0.5.1 it no longer copies them (it took 48 ms at 10<sup>7</sup> points). When both samples are large and already sorted, this merge is the faster method: two sorted samples of 10<sup>7</sup> points take 22 ms with `ot1d.w1(x, y, sorting=False)`, and 84 ms with `method='ecdf'`. The legacy function `OT1D(x, y, sorting=False)` takes 8.5 ms: unlike `ot1d.w1`, it does not check that the values are finite, a check that reads both samples once more.
 
 On Linux, the arrays of a large reference are allocated on transparent huge pages (2 MB), when the system allows them on request (the setting `madvise` or `always` in `/sys/kernel/mm/transparent_hugepage/enabled`, the default of the main distributions). The timings above use them; with standard 4 KB pages, preparing the reference of 10<sup>7</sup> points takes 0.15 seconds, and a sample about 0.10 ms. The benchmark is [bench_reference.py](https://github.com/stegua/ot1d/blob/main/python/bench_reference.py).
 
@@ -196,7 +196,7 @@ N = 1000000
 x = np.random.uniform(1, 2, N)
 y = np.random.uniform(0, 1, N)
 
-z = ot1d.w2(x, y, sorting=True, threads=16)
+z = ot1d.w2(x, y)
 
 print('Wasserstein distance of order 2, W2(x,y) =', z)
 ```

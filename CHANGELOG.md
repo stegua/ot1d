@@ -18,8 +18,8 @@
 ### Changed
 * `sorting=False` (and `method='simplex'` on a reference) no longer copies the input: the merge
   reads the arrays of the caller, with or without weights. Before, every call copied both samples
-  (240 MB more memory for a sample of 3*10^7 points). On sorted samples, one thread: two samples of
-  10^7 points take 8.5 ms instead of 84 ms (89 ms instead of 222 ms with weights); 10^4 points
+  (240 MB more memory for a sample of 3*10^7 points). On sorted samples, one thread, function `OT1D`: two
+  samples of 10^7 points take 8.5 ms instead of 84 ms (89 ms instead of 222 ms with weights); 10^4 points
   against 10^7 take 10 ms instead of 48 ms (24 ms instead of 86 ms with weights on both, on a
   reference).
 * The parallel sort (`threads > 1`) is now part of `OT1D.hpp`: one block per thread, sorted in
