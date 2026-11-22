@@ -25,6 +25,13 @@
   with a plan; pairs (value, weight) are sorted by one thread, which was already faster than the
   previous parallel sort (156 ms instead of 236 ms with 8 threads).
 
+### Packaging
+* Wheels for CPython 3.8 to 3.14 on Linux (x86-64, aarch64), macOS (Intel, Apple Silicon) and
+  Windows (x86-64), built and tested by the GitHub workflow `wheels.yml` and uploaded to PyPI on a
+  version tag: no compiler is needed to install them.
+* The package declares its licence (EUPL-1.2) and requires only `numpy` (`cython` is needed only to
+  build from source). The Windows build no longer requires a CPU with AVX2.
+
 ## 0.5.0 (2026-11-21)
 
 ### New

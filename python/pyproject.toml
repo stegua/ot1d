@@ -1,3 +1,17 @@
 [build-system]
 requires = ["setuptools", "wheel", "cython", "numpy"]
 build-backend = "setuptools.build_meta"
+
+# Wheels built by .github/workflows/wheels.yml. cibuildwheel 3.4.1 is the last
+# release that builds CPython 3.8 (dropped in 4.0).
+[tool.cibuildwheel]
+build = "cp38-* cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = ["*-musllinux_*", "*-win32", "*_i686", "cp31?t-*"]
+environment = { OT1D_REFERENCE = "native" }
+test-requires = ["pytest", "scipy"]
+test-command = "python {package}/test_wrapper.py && python -m pytest -q {package}/test_reference.py"
+
+# macOS on Intel: the SIMD sorting is C++17, which needs macOS 10.13
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+environment = { OT1D_REFERENCE = "native", MACOSX_DEPLOYMENT_TARGET = "10.13" }
