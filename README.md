@@ -14,8 +14,8 @@ pip3 install ot1d
 
 The **OT1D** library provides an implementation of Optimal Transport in 1D that is faster than:
 
-1. [SciPy](https://scipy.org/): it is at least 5x faster than [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html), and up to 30x faster on sorted input.
-2. [POT](https://pythonot.github.io/): it is at least 3x faster than [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d), and up to 45x faster on sorted input.
+1. [SciPy](https://scipy.org/): it is about 6x to 18x faster than [scipy.stats.wasserstein_distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html) on unsorted input, and more than 100x faster on sorted input without weights.
+2. [POT](https://pythonot.github.io/): it is about 4x to 18x faster than [ot.lp.wasserstein_1d](https://pythonot.github.io/gen_modules/ot.lp.html#ot.lp.wasserstein_1d) on unsorted input, and more than 150x faster on sorted input without weights.
 
 The actual speedup depends on your computer (e.g., the number of cores), your OS, and your compiler. To run a performance test on your computer, see below, or run the Python script [OT1D_test.py](https://github.com/stegua/ot1d/blob/main/python/OT1D_test.py). For some strange reason, the speedups on Mac laptops are larger than on other architectures.
 
