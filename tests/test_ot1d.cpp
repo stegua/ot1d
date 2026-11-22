@@ -77,9 +77,14 @@ static double reference(const std::vector<double>& x, const std::vector<double>&
     std::sort(mu.begin(), mu.end());
     std::sort(nu.begin(), nu.end());
 
+    // Cumulative masses with the compensated sum of the library: where long
+    // double is a plain double (ARM, MSVC), a plain running sum is off by 1e-13
+    // after 30,000 terms, and on heavy-tailed data that mass, times a squared
+    // distance of 1e5, is an error of 1e-8 in this reference value.
     std::vector<long double> cu(1, 0.0L), cv(1, 0.0L);
-    for (auto& e : mu) cu.push_back(cu.back() + e.second);
-    for (auto& e : nu) cv.push_back(cv.back() + e.second);
+    ot1d_detail::block_sum su, sv;
+    for (auto& e : mu) { su.add(e.second); cu.push_back(su.value()); }
+    for (auto& e : nu) { sv.add(e.second); cv.push_back(sv.value()); }
 
     std::vector<long double> t(cu.begin(), cu.end());
     t.insert(t.end(), cv.begin(), cv.end());

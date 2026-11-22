@@ -91,6 +91,14 @@ template <typename T> inline bool _simd_sort(size_t, T*) { return false; }
 #define OT1D_USE_SIMD
 #endif
 
+// MSVC has no attribute or pragma to protect a single function from /fp:fast,
+// so the whole header is compiled with the precise floating point model (the
+// default of MSVC); the setting of the including file is restored at the end.
+#if defined(_MSC_VER) && !defined(__clang__)
+#pragma float_control(precise, on, push)
+#define OT1D_MSVC_FLOAT_CONTROL
+#endif
+
 // Compensated summation needs the floating point operations in the order they
 // are written, also when the file is compiled with -ffast-math: the functions
 // that use it are marked with OT1D_PRECISE_ATTR (GCC) and start with
@@ -1601,3 +1609,8 @@ inline void w2_batch(const reference& ref, const double* y, const double* b, con
 }
 
 } // namespace ot1d
+
+#ifdef OT1D_MSVC_FLOAT_CONTROL
+#pragma float_control(pop)
+#undef OT1D_MSVC_FLOAT_CONTROL
+#endif

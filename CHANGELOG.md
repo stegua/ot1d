@@ -18,6 +18,8 @@
   were not rejected, and a distance that overflows was not `inf`, because Clang assumes that no
   `double` argument or return value is NaN or inf and removed the tests. The tests now read the
   bits of the values from memory.
+* MSVC with `/fp:fast`: a distance that overflows was not `inf`. Under MSVC the header is now
+  always compiled with the precise floating point model.
 * `OT1D(..., plan=True)`, `w1_plan` and `w2_plan` raised `ValueError: cannot resize an array` on
   Python 3.14 and later.
 

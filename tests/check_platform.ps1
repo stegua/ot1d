@@ -3,9 +3,10 @@
 # temporary virtual environment, and a short benchmark. It is the Windows
 # version of tests/check_platform.sh.
 #
-# Run it from a "Developer PowerShell for VS" (Start menu), so that the compiler
-# cl.exe is on the PATH, in an environment where "python" is Python 3.8 or
-# later (for instance after "conda activate base"):
+# Run it from a PowerShell window where "python" is a 64-bit Python 3.8 or
+# later (for instance after "conda activate base"). The script finds Visual
+# Studio and selects its 64-bit compiler by itself, also when it is started from
+# a "Developer PowerShell for VS", whose default compiler is the 32-bit one:
 #
 #   git checkout develop
 #   git pull
@@ -56,11 +57,39 @@ function Step($name, [scriptblock]$body) {
     }
 }
 
+# First line printed by cl.exe (its version and target), or $null without cl
+function ClBanner {
+    if ($null -eq (Get-Command cl -ErrorAction SilentlyContinue)) { return $null }
+    return (cmd /c "cl 2>&1" | Select-Object -First 1)   # the banner is on the standard error
+}
+
+# Makes cl.exe the 64-bit compiler: the Python to build for is 64-bit, and the
+# default of a "Developer PowerShell for VS" is the 32-bit compiler.
+function UseX64Compiler {
+    $banner = ClBanner
+    if ($banner -match "x64") { return }
+    $vs = $env:VSINSTALLDIR
+    if (-not $vs) {
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path $vswhere) {
+            $vs = & $vswhere -latest -prerelease -products * -property installationPath | Select-Object -First 1
+        }
+    }
+    if (-not $vs) { Write-Host "Visual Studio not found."; return }
+    $dll = Join-Path $vs "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+    if (-not (Test-Path $dll)) { Write-Host "Not found: $dll"; return }
+    Write-Host "Selecting the 64-bit compiler of $vs"
+    Import-Module $dll
+    Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64" | Out-Null
+}
+
 # Compiles tests\test_ot1d.cpp with cl and the given flags, and runs it
 function CxxTest($out, $flags) {
     $exe = Join-Path $Tmp "$out.exe"
     $obj = Join-Path $Tmp "$out.obj"
-    $cmd = @("/nologo", "/EHsc", "/W3", "/std:c++14", "/Iinclude") + $flags + @("tests\test_ot1d.cpp", "/Fe:$exe", "/Fo:$obj")
+    # C4244 and C4267 (conversions between integer types) come by the hundreds
+    # from the sorting library pdqsort.h, and would hide the other messages
+    $cmd = @("/nologo", "/EHsc", "/W3", "/wd4244", "/wd4267", "/std:c++14", "/Iinclude") + $flags + @("tests\test_ot1d.cpp", "/Fe:$exe", "/Fo:$obj")
     Write-Host ("cl " + ($cmd -join " "))
     & cl @cmd 2>&1 | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { throw "compilation failed" }
@@ -84,15 +113,26 @@ try {
     git log --format="commit %h %s" -1
     git status --short | Where-Object { $_ -notmatch '^\?\?' }
 
-    $haveCl = $null -ne (Get-Command cl -ErrorAction SilentlyContinue)
+    try { UseX64Compiler } catch { Write-Host "Could not select the 64-bit compiler: $_" }
+    Set-Location $Root
+    $banner = ClBanner
+    $haveCl = $null -ne $banner
     $havePython = $null -ne (Get-Command python -ErrorAction SilentlyContinue)
     if ($haveCl) {
-        # cl prints its version banner on the standard error
-        cmd /c "cl 2>&1" | Select-Object -First 2 | ForEach-Object { Write-Host $_ }
+        Write-Host $banner
+        if ($banner -notmatch "x64") {
+            Write-Host "WARNING: this is not the 64-bit compiler; the Python module will not link."
+        }
     } else {
-        Write-Host "cl.exe not found: run this script from a 'Developer PowerShell for VS'."
+        Write-Host "cl.exe not found: install the C++ workload of Visual Studio, or run this script"
+        Write-Host "from an 'x64 Native Tools Command Prompt for VS' (type 'powershell' there first)."
     }
-    if ($havePython) { python --version } else { Write-Host "python not found on the PATH." }
+    if ($havePython) {
+        python --version
+        python -c "import struct, sys; print('python is', 8 * struct.calcsize('P'), 'bit:', sys.executable)"
+    } else {
+        Write-Host "python not found on the PATH."
+    }
 
     Step "The two copies of the header are the same" {
         $a = Get-FileHash include\OT1D.hpp
