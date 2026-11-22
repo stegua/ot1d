@@ -662,52 +662,64 @@ static void test_ot1d_precision() {
             double err = std::fabs(z - r) / r;
             CHECK(err < 2e-14, "precision of the simplex merge W%d, m=%lld: relative error %.3g", p, (long long)mq, err);
         }
-    // The same with weights, against a long double integration over the
-    // breakpoints of the two cumulative distributions. With the mass tolerance
-    // of v0.5.0 (1e-13 of the total mass) the error was about 1e-11.
-    std::uniform_real_distribution<> U(0.1, 1.0);
-    std::vector<double> a(n), b(y3.size());
-    long double sa = 0, sb = 0;
-    // Weights that are small integers plus a part of relative size 1e-7: the
-    // residual masses of the merge are then often tiny, but not rounding errors
-    // (values without ties, so that a mass moved to the next point changes the cost)
-    for (auto& v : xs) v = N(gen);
-    for (auto& v : y3) v = N(gen) + 0.3;
-    std::sort(xs.begin(), xs.end());
-    std::sort(y3.begin(), y3.end());
-    std::uniform_int_distribution<> K(1, 3);
-    for (auto& v : a) { v = K(gen) + 1e-7 * U(gen); sa += v; }
-    for (auto& v : b) { v = 3.0 * (K(gen) + 1e-7 * U(gen)); sb += v; }
-    for (auto& v : a) v = (double)(v / sa);
-    for (auto& v : b) v = (double)(v / sb);
-    sa = 0; sb = 0;
-    for (double v : a) sa += v;
-    for (double v : b) sb += v;
+    // The same with weights. The exact value must not depend on long double,
+    // which is a plain double on ARM and with MSVC: the weights are integers
+    // (exact in double, also their partial sums, below 2^53), so the reference
+    // merge tracks the masses exactly in 64-bit integers, and adds the terms
+    // with the compensated sum of the library.
+    // Each weight of y is the sum of three consecutive weights of x (multiples
+    // of 2^30) plus a small integer, chosen so that after every three points
+    // of x a residual mass of 10 to 400 units is left: about 1e-14 of the
+    // total mass, tiny but not a rounding error. With the mass tolerance of
+    // v0.5.0 (1e-13 of the total mass) these residuals were dropped, and the
+    // error was about 1e-11.
+    // (Values without ties, so that a mass moved to the next point changes the cost.)
+    const int nw = n, mw = n / 3;
+    std::vector<double> xw(nw), yw(mw), a(nw), b(mw);
+    for (auto& v : xw) v = N(gen);
+    for (auto& v : yw) v = N(gen) + 0.3;
+    std::sort(xw.begin(), xw.end());
+    std::sort(yw.begin(), yw.end());
+    std::uniform_int_distribution<int64_t> K(1, 3), C(10, 400);
+    const int64_t Q = (int64_t)1 << 30;
+    for (auto& v : a) v = (double)(K(gen) * Q);
+    int64_t ahead = 0;  // mass of y in excess of the mass of x, after each group of three
+    for (int j = 0; j < mw; j++) {
+        const int64_t c = C(gen);
+        b[j] = a[3 * j] + a[3 * j + 1] + a[3 * j + 2] + (double)(c - ahead);
+        ahead = c;
+    }
+    // Equal total masses: the points of x after the last group, and the last excess
+    for (int i = 3 * mw; i < nw; i++) b[mw - 1] += a[i];
+    a[nw - 1] += (double)ahead;
     for (int p = 1; p <= 2; p++) {
-        // Both measures normalized to mass 1 in long double: the totals differ by
-        // rounding only, and the merge transports the smaller one
-        size_t i = 0, j = 0;
-        long double fa = a[0] / sa, fb = b[0] / sb, cur = 0, r = 0;
-        while (i < a.size() && j < b.size()) {
-            long double nxt = fa < fb ? fa : fb;
-            long double d = (long double)xs[i] - y3[j];
-            r += (nxt - cur) * (p == 1 ? fabsl(d) : d * d);
-            cur = nxt;
-            const bool ia = fa <= nxt, jb = fb <= nxt;
-            if (ia) { i++; if (i < a.size()) fa += a[i] / sa; }
-            if (jb) { j++; if (j < b.size()) fb += b[j] / sb; }
+        int i = 0, j = 0;
+        int64_t A = (int64_t)a[0], B = (int64_t)b[0];
+        ot1d_detail::block_sum sum;
+        while (i < nw && j < mw) {
+            const int64_t t = A < B ? A : B;
+            const double d = xw[i] - yw[j];
+            sum.add((double)t * (p == 1 ? std::fabs(d) : d * d));
+            A -= t;
+            B -= t;
+            if (A == 0) { i++; if (i < nw) A = (int64_t)a[i]; }
+            if (B == 0) { j++; if (j < mw) B = (int64_t)b[j]; }
         }
-        if (p == 2) r = sqrtl(r);
-        double z = p == 1 ? ot1d::w1(xs.data(), a.data(), n, y3.data(), b.data(), (int64_t)y3.size(), ot1d::Method::Simplex, false)
-                          : ot1d::w2(xs.data(), a.data(), n, y3.data(), b.data(), (int64_t)y3.size(), ot1d::Method::Simplex, false);
-        double err = (double)(fabsl(z - r) / r);
-        printf("Precision of the weighted simplex merge, n=%d m=%d: W%d relative error %.2e\n", n, (int)y3.size(), p, err);
+        CHECK(i == nw && j == mw, "weighted reference merge: masses not exhausted together");
+        const double r = p == 1 ? sum.value() : std::sqrt(sum.value());
+        double z = p == 1 ? ot1d::w1(xw.data(), a.data(), nw, yw.data(), b.data(), mw, ot1d::Method::Simplex, false)
+                          : ot1d::w2(xw.data(), a.data(), nw, yw.data(), b.data(), mw, ot1d::Method::Simplex, false);
+        double err = std::fabs(z - r) / r;
+        printf("Precision of the weighted simplex merge, n=%d m=%d: W%d relative error %.2e\n", nw, mw, p, err);
         CHECK(err < 1e-13, "precision of the weighted simplex merge W%d: relative error %.3g", p, err);
     }
 }
 
 static void test_ot1d_invalid() {
-    double x[3] = {1, 2, 3}, bad[3] = {1, NAN, 3}, neg[3] = {1, -1, 3}, zero[3] = {0, 0, 0};
+    // NaN from its bits: with -ffast-math, Clang treats the constant NAN as undefined
+    double x[3] = {1, 2, 3}, bad[3] = {1, 0, 3}, neg[3] = {1, -1, 3}, zero[3] = {0, 0, 0};
+    const uint64_t nan_bits = 0x7FF8000000000000ULL;
+    std::memcpy(&bad[1], &nan_bits, sizeof nan_bits);
     int thrown = 0;
     auto expect = [&](std::function<void()> f) {
         try { f(); } catch (const std::invalid_argument&) { thrown++; return; }
@@ -732,8 +744,10 @@ static void test_ot1d_invalid() {
     double big[3] = {1, 2, 1e200};
     // (bit test: this file is compiled with -ffast-math, which may fold z == inf)
     auto is_inf = [](double z) {
+        volatile double stored = z;  // as ot1d::detail::is_finite: Clang assumes that z is finite
+        const double back = stored;
         uint64_t u;
-        std::memcpy(&u, &z, sizeof u);
+        std::memcpy(&u, &back, sizeof u);
         return u == 0x7FF0000000000000ULL;
     };
     ot1d::reference B(big, 3);

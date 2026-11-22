@@ -14,6 +14,7 @@ OT1D's existing merge is used only as a sanity check (it is ~1e-11 accurate on s
 
 from __future__ import annotations
 
+import math
 import os
 import zlib
 
@@ -61,25 +62,28 @@ def rel(a, b):
 
 
 def longdouble_merge(x, y, p):
-    """Independent ground truth: north-west corner in long double with integer masses."""
-    x = np.sort(x).astype(np.longdouble)
-    y = np.sort(y).astype(np.longdouble)
+    """Independent ground truth: north-west corner with integer masses, the terms added exactly.
+
+    (The name is historical: it used np.longdouble, which is a plain double on ARM and on Windows.
+    The terms are now added with math.fsum, which is exactly rounded on every platform.)"""
+    x = np.sort(x).tolist()
+    y = np.sort(y).tolist()
     n, m = len(x), len(y)
     i = j = 0
     ri, rj = m, n
-    tot = np.longdouble(0)
+    terms = []
     while i < n and j < m:
         t = min(ri, rj)
         d = abs(x[i] - y[j])
-        tot += t * (d if p == 1 else d * d)
+        terms.append(t * (d if p == 1 else d * d))
         ri -= t
         rj -= t
         if ri == 0:
             i, ri = i + 1, m
         if rj == 0:
             j, rj = j + 1, n
-    v = tot / np.longdouble(n * m)
-    return float(v if p == 1 else np.sqrt(v))
+    v = math.fsum(terms) / (n * m)
+    return v if p == 1 else math.sqrt(v)
 
 
 @pytest.mark.parametrize("kind", list(GEN))
@@ -193,7 +197,9 @@ def test_pickle_roundtrip(p, wref):
     R2 = pickle.loads(pickle.dumps(R))
     assert len(R2) == len(R) and rel(R2.mean, R.mean) < 1e-14
     assert np.array_equal(R2.sorted_values, R.sorted_values)
-    assert rel(dist(R2, y, p), dist(R, y, p)) < 1e-14
+    # With weights, the copy is rebuilt from the weights, which are differences of the stored
+    # cumulative weights: equal up to rounding
+    assert rel(dist(R2, y, p), dist(R, y, p)) < (1e-12 if wref else 1e-14)
 
 
 @native_only

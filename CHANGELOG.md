@@ -14,6 +14,12 @@
 * `method='ecdf'`: W1 could be slightly negative (a few 1e-17 times the scale of the data) on
   samples very close to the reference, for instance drawn from its points. A sum that rounding
   leaves below 0 is now returned as 0, as it already was for W2.
+* Clang with `-ffast-math` (the build of the Python module on macOS): NaN and inf in the input
+  were not rejected, and a distance that overflows was not `inf`, because Clang assumes that no
+  `double` argument or return value is NaN or inf and removed the tests. The tests now read the
+  bits of the values from memory.
+* `OT1D(..., plan=True)`, `w1_plan` and `w2_plan` raised `ValueError: cannot resize an array` on
+  Python 3.14 and later.
 
 ### Changed
 * `sorting=False` (and `method='simplex'` on a reference) no longer copies the input: the merge

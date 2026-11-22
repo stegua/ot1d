@@ -49,17 +49,34 @@ binary search to find the segment of u. Positions are then floating point; use c
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 
-def _prefix(v, div=1):
-    """Prefix sums [0, v1, v1+v2, ...] / div, accumulated in extended precision, stored as double.
+def _prefix(v, div=1, block=256):
+    """Prefix sums [0, v1, v1+v2, ...] / div, accurate to the last digits, stored as double.
 
     Stand-in for the C++ rule: accumulate with a Neumaier (compensated) sum in the single fit pass.
     Plain double cumsum costs up to 2.6e-10 relative error at n = 10^6 on data with many ties.
+
+    It does not use np.longdouble, which is a plain double on ARM and on Windows: the sum of the
+    values before each block is kept as two doubles (hi + lo) updated with math.fsum, which is
+    exactly rounded, and only the sums inside a block (256 values) are plain.
     """
-    acc = np.cumsum(np.asarray(v, dtype=np.longdouble)) / div
-    return np.concatenate(([0.0], acc.astype(np.float64)))
+    v = np.asarray(v, dtype=np.float64)
+    n = len(v)
+    out = np.empty(n + 1)
+    out[0] = 0.0
+    hi = lo = 0.0
+    for s in range(0, n, block):
+        part = v[s:s + block]
+        out[s + 1:s + 1 + len(part)] = hi + (lo + np.cumsum(part))
+        terms = [hi, lo] + part.tolist()
+        hi_new = math.fsum(terms)
+        lo = math.fsum(terms + [-hi_new])
+        hi = hi_new
+    return out / div
 
 
 class Reference:
