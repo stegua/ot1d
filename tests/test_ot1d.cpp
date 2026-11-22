@@ -745,6 +745,45 @@ static void test_ot1d_invalid() {
     double out[2];
     expect([&] { ot1d::w1_batch(R, x, off, 2, out); });
     CHECK(thrown == 13, "invalid input: %d of 13 cases threw", thrown);
+
+    // Simplex on sorted samples without weights: the input is checked only when
+    // the result is not finite, so a NaN or an inf anywhere must reach the result
+    // (sizes on both sides of the block lengths of the kernels, equal or not).
+    uint64_t bits[3] = {0x7FF8000000000000ULL, 0x7FF0000000000000ULL, 0xFFF0000000000000ULL};  // NaN, +inf, -inf
+    const int ns[] = {1, 2, 63, 64, 65, 1023, 1024, 1025, 5000};
+    int cases = 0, caught = 0;
+    for (int n : ns)
+        for (int m : {n, n + 1, 3 * n + 7, 1})
+            for (int p = 1; p <= 2; p++) {
+                std::vector<double> u(n), v(m);
+                for (int i = 0; i < n; i++) u[i] = 0.5 * i;
+                for (int j = 0; j < m; j++) v[j] = 0.25 * j + 1.0;
+                auto run = [&] {
+                    return p == 1 ? ot1d::w1(u.data(), n, v.data(), m, ot1d::Method::Simplex, false)
+                                  : ot1d::w2(u.data(), n, v.data(), m, ot1d::Method::Simplex, false);
+                };
+                double z0 = run();
+                CHECK(z0 > 0.0 && !is_inf(z0), "simplex sorted n=%d m=%d: value %g", n, m, z0);
+                for (int side = 0; side < 2; side++) {
+                    std::vector<double>& w = side == 0 ? u : v;
+                    const int len = (int)w.size();
+                    for (int pos : {0, len / 2, len - 1})
+                        for (uint64_t bt : bits) {
+                            const double keep = w[pos];
+                            std::memcpy(&w[pos], &bt, sizeof bt);
+                            cases++;
+                            try { run(); } catch (const std::invalid_argument&) { caught++; }
+                            w[pos] = keep;
+                        }
+                }
+                // An overflow is not an invalid input
+                u[n - 1] = 1e200;
+                double zo = run();
+                CHECK(p == 1 ? (zo > 0.0 && !is_inf(zo)) : is_inf(zo), "simplex sorted n=%d m=%d p=%d with 1e200: %g", n, m, p, zo);
+            }
+    CHECK(caught == cases, "simplex sorted: %d of %d inputs with NaN or inf threw", caught, cases);
+    expect([&] { ot1d::w1(x, 0, x, 3, ot1d::Method::Simplex, false); });
+    expect([&] { ot1d::w2(x, 3, x, 0, ot1d::Method::Simplex, false); });
 }
 
 static void test_ot1d() {

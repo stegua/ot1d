@@ -340,6 +340,29 @@ def test_never_negative(scale):
 
 
 @native_only
+@pytest.mark.parametrize("p", [1, 2])
+def test_sorted_simplex_rejects_nan_and_inf(p):
+    """method='simplex' with sorting=False and no weights checks the input only when the result
+    is not finite: NaN and inf must still raise, and an overflow must still give inf."""
+    f = ot1d.w1 if p == 1 else ot1d.w2
+    r = np.random.default_rng(17)
+    for n, m in [(1, 1), (64, 64), (1000, 1000), (1000, 37), (5000, 12345)]:
+        x, y = np.sort(r.normal(size=n)), np.sort(r.normal(size=m))
+        assert np.isfinite(f(x, y, sorting=False))
+        for arr in (x, y):
+            for pos in (0, len(arr) // 2, len(arr) - 1):
+                for bad in (np.nan, np.inf, -np.inf):
+                    keep = arr[pos]
+                    arr[pos] = bad
+                    with pytest.raises(ValueError):
+                        f(x, y, sorting=False)
+                    arr[pos] = keep
+        x[-1] = 1e200
+        z = f(x, y, sorting=False)
+        assert np.isfinite(z) if p == 1 else z == np.inf
+
+
+@native_only
 @pytest.mark.parametrize("method", ["ecdf", "simplex"])
 def test_overflow_is_inf(method):
     """Squares that overflow give +inf (IEEE 754), never a finite distance."""

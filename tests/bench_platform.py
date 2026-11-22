@@ -51,7 +51,7 @@ row("w1_reference, ecdf, weighted sample", med(lambda: ot1d.w1_reference(R, y, b
 row("w1_reference, ecdf, weighted reference", med(lambda: ot1d.w1_reference(RW, y), 51))
 row("w1_reference, simplex", med(lambda: ot1d.w1_reference(R, y, method="simplex"), 21))
 
-print("Two samples of 10^7 points (README, sorted input: simplex 22 ms, OT1D 8.5 ms, ecdf 84 ms)")
+print("Two samples of 10^7 points (README, sorted input: simplex 9 ms, OT1D 8.5 ms, ecdf 84 ms)")
 row("w1, simplex, sorting=False", med(lambda: ot1d.w1(xs, ys, sorting=False), 9))
 row("OT1D, sorting=False", med(lambda: ot1d.OT1D(xs, ys, p=1, sorting=False), 9))
 row("w1, ecdf, sorting=False", med(lambda: ot1d.w1(xs, ys, method="ecdf", sorting=False), 5))

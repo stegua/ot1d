@@ -1439,6 +1439,23 @@ template <int P>
 double pair(const double* x, const double* a, int64_t n, const double* y, const double* b, int64_t m,
             Method method, bool sorting, int threads) {
     if (method == Method::Simplex) {
+        if (a == nullptr && b == nullptr && !sorting) {
+            // Sorted samples without weights: the merge is as fast as the memory,
+            // and a pass to look for NaN and inf would double its time. Here every
+            // point takes part in the sum with a positive mass and no value is
+            // compared, so a NaN or an inf in the input makes the result NaN or
+            // inf (also with -ffast-math: only subtractions, products and sums).
+            // The input is therefore checked only when the result is not finite,
+            // to tell an invalid input from an overflow.
+            check_size(n, "x");
+            check_size(m, "y");
+            const double z = ot1d_detail::uniform<P>(to_int(n), to_int(m), x, y, nullptr, nullptr, nullptr,
+                                                    false, threads);
+            if (is_finite(z)) return z;
+            if (!all_finite(x, n)) throw_not_finite("x");
+            if (!all_finite(y, m)) throw_not_finite("y");
+            return std::numeric_limits<double>::infinity();
+        }
         check_sample(x, n, "x");
         check_sample(y, m, "y");
         int ni = to_int(n), mi = to_int(m);
