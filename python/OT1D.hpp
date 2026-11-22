@@ -97,7 +97,10 @@ template <typename T> inline bool _simd_sort(size_t, T*) { return false; }
 // OT1D_PRECISE_SCOPE (Clang).
 #if defined(__clang__)
 #define OT1D_PRECISE_ATTR
-#define OT1D_PRECISE_SCOPE _Pragma("clang fp reassociate(off)")
+// All the fast-math assumptions are switched off in the function: no
+// reassociation, and NaN and inf are honored (Clang would otherwise fold the
+// tests for them, also the ones written on the bits of the value).
+#define OT1D_PRECISE_SCOPE _Pragma("float_control(precise, on)")
 #elif defined(__GNUC__)
 #define OT1D_PRECISE_ATTR __attribute__((optimize("no-fast-math")))
 #define OT1D_PRECISE_SCOPE
@@ -901,17 +904,41 @@ struct uninit_alloc {
 
 // ---------------------------------------------------------------- validation
 
-// Bit test on the exponent: unlike std::isfinite, it cannot be folded away by
-// -ffast-math (-ffinite-math-only) in the caller's translation unit.
-inline bool is_finite(double v) {
+// Tests for NaN and inf, and the value +inf. With -ffast-math (which implies
+// -ffinite-math-only) the compiler assumes that no double is NaN or inf: GCC
+// folds std::isfinite, and Clang marks every double argument and return value
+// as finite, so it also folds a test written on the bits of such a value, and
+// treats a returned inf as impossible. Therefore:
+//   - the values of an array are tested on their bits read from memory
+//     (finite_at), without ever being a double;
+//   - a computed value is tested (is_finite) after a trip through volatile
+//     storage, which the optimizer cannot see through;
+//   - +inf is built from its bits (pos_inf), again through volatile storage.
+const uint64_t EXPONENT_BITS = 0x7FF0000000000000ULL;
+
+inline bool finite_at(const double* p) {
     uint64_t u;
-    std::memcpy(&u, &v, sizeof u);
-    return (u & 0x7FF0000000000000ULL) != 0x7FF0000000000000ULL;
+    std::memcpy(&u, p, sizeof u);
+    return (u & EXPONENT_BITS) != EXPONENT_BITS;
+}
+
+inline bool is_finite(double v) {
+    volatile double stored = v;
+    const double back = stored;  // nothing can be assumed on a value read from volatile storage
+    return finite_at(&back);
+}
+
+inline double pos_inf() {
+    volatile uint64_t bits = EXPONENT_BITS;
+    const uint64_t u = bits;
+    double v;
+    std::memcpy(&v, &u, sizeof v);
+    return v;
 }
 
 inline bool all_finite(const double* x, int64_t n) {
     for (int64_t i = 0; i < n; i++)
-        if (!is_finite(x[i])) return false;
+        if (!finite_at(x + i)) return false;
     return true;
 }
 
@@ -920,7 +947,7 @@ OT1D_PRECISE_ATTR inline double check_weights(const double* w, int64_t n, const 
     OT1D_PRECISE_SCOPE
     double s = 0.0, c = 0.0;
     for (int64_t i = 0; i < n; i++) {
-        if (!is_finite(w[i]) || w[i] < 0.0)
+        if (!finite_at(w + i) || w[i] < 0.0)
             throw std::invalid_argument(std::string(what) + ": weights must be finite and nonnegative");
         OT1D_NEUMAIER(s, c, w[i]);
     }
@@ -952,7 +979,7 @@ OT1D_PRECISE_ATTR inline double copy_checked_sum(const double* x, int64_t n, dou
     double s = 0.0, e = 0.0, prev = x[0];
     bool sorted = true;
     for (int64_t i = 0; i < n; i++) {
-        if (!is_finite(x[i])) throw_not_finite(what);
+        if (!finite_at(x + i)) throw_not_finite(what);
         sorted = sorted && !(x[i] < prev);
         prev = r[i] = x[i];
         OT1D_NEUMAIER(s, e, x[i]);
@@ -965,7 +992,7 @@ OT1D_PRECISE_ATTR inline double copy_checked_sum(const double* x, int64_t n, dou
 // The inputs are finite, so a result that is not finite comes from an overflow
 // (for instance, of the squares): as in IEEE 754 arithmetic, it is +inf.
 inline double overflow_to_inf(double z) {
-    return is_finite(z) ? z : std::numeric_limits<double>::infinity();
+    return is_finite(z) ? z : pos_inf();
 }
 
 inline int to_int(int64_t n) {
@@ -1454,7 +1481,7 @@ double pair(const double* x, const double* a, int64_t n, const double* y, const 
             if (is_finite(z)) return z;
             if (!all_finite(x, n)) throw_not_finite("x");
             if (!all_finite(y, m)) throw_not_finite("y");
-            return std::numeric_limits<double>::infinity();
+            return pos_inf();
         }
         check_sample(x, n, "x");
         check_sample(y, m, "y");
