@@ -457,10 +457,9 @@ def OT1D(X, Y, A=None, B=None, p=1, sorting=True, threads=1, plan=False):
             else:
                 z, ns = OT_1Dd_plan(X, Y, A, B, T, W, sorting, threads)
 
-        # Resize to contain only non-null maps
-        T.resize((ns, 2))
-        W.resize(ns)
-        return z, T, W
+        # Keep only the entries of the plan. Copies, and not ndarray.resize: its
+        # check of the reference count fails on Python 3.14 and later.
+        return z, T[:2*ns].reshape(ns, 2).copy(), W[:ns].copy()
     else:
         # Compute only the optimal value
 
