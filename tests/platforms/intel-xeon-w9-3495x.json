@@ -1,0 +1,28 @@
+{
+  "machine": "Linux workstation",
+  "cpu": "Intel Xeon w9-3495X",
+  "cores": 112,
+  "memory_gb": 125,
+  "os": "Ubuntu 22.04.5 LTS",
+  "compiler": "GCC 13.4",
+  "python": "3.12.12",
+  "numpy": "2.2.6",
+  "ot1d": "0.5.1.dev0",
+  "simd": "avx512",
+  "date": "2026-11-22",
+  "results": {
+    "np_sort": 0.08372,
+    "reference": 0.1153,
+    "reference_weights": 0.3176,
+    "w1_ref_ecdf": 0.07134,
+    "w2_ref_ecdf": 0.05261,
+    "w1_ref_simplex": 10.75,
+    "w1_sorted_simplex": 9.196,
+    "w1_sorted_ecdf": 83.6,
+    "w1_unsorted": 0.2642,
+    "sort_1": 0.06365,
+    "sort_8": 0.05413,
+    "batch_1": 0.07845,
+    "batch_8": 0.01946
+  }
+}

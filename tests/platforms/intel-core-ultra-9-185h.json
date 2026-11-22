@@ -1,0 +1,14 @@
+{
+  "machine": "Lenovo ThinkPad P1",
+  "cpu": "Intel Core Ultra 9 185H",
+  "cores": 22,
+  "memory_gb": 63,
+  "os": "Windows 11",
+  "compiler": "MSVC 19.52",
+  "python": "3.12.9",
+  "numpy": "2.5.5",
+  "ot1d": "0.5.1.dev0",
+  "simd": "",
+  "date": "",
+  "results": {}
+}

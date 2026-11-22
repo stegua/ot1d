@@ -8,6 +8,8 @@
 #   git checkout develop && git pull
 #   bash tests/check_platform.sh            # about 5 to 10 minutes
 #   bash tests/check_platform.sh --quick    # without sanitizers and benchmark
+#   bash tests/check_platform.sh --save     # also record the timings of this machine in
+#                                           # tests/platforms/ and in the table of the READMEs
 #
 # Nothing is installed outside a temporary folder, which is removed at the end.
 # Everything printed is also written to ot1d_platform_report.txt (in the root
@@ -20,7 +22,14 @@ cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 REPORT="$ROOT/ot1d_platform_report.txt"
 QUICK=0
-[ "${1:-}" = "--quick" ] && QUICK=1
+SAVE=
+for arg in "$@"; do
+    case "$arg" in
+        --quick) QUICK=1 ;;
+        --save) SAVE=--save ;;
+        *) echo "unknown option: $arg"; exit 2 ;;
+    esac
+done
 CXX=${CXX:-c++}
 PYTHON=${PYTHON:-python3}
 TMP=$(mktemp -d)
@@ -99,7 +108,7 @@ print('module:', ot1d.__file__)"
     step "Python: test_reference.py on the C++ module" env OT1D_REFERENCE=native "$PY" -m pytest -q "$ROOT/python/test_reference.py"
     step "Python: test_reference.py on the NumPy prototype" env PYTHONPATH="$ROOT/python" "$PY" -m pytest -q "$ROOT/python/test_reference.py"
     if [ $QUICK = 0 ]; then
-        step "Benchmark" "$PY" "$ROOT/tests/bench_platform.py"
+        step "Benchmark" "$PY" "$ROOT/tests/bench_platform.py" $SAVE
     fi
     cd "$ROOT"
 else

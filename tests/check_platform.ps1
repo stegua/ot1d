@@ -12,14 +12,17 @@
 #   git pull
 #   powershell -ExecutionPolicy Bypass -File tests\check_platform.ps1
 #   powershell -ExecutionPolicy Bypass -File tests\check_platform.ps1 -Quick
+#   powershell -ExecutionPolicy Bypass -File tests\check_platform.ps1 -Save
 #
+# -Save also records the timings of this machine in tests\platforms and in the
+# table of the READMEs.
 # -Quick skips the sanitizer build and the benchmark. Nothing is installed
 # outside a temporary folder, which is removed at the end. Everything printed
 # is also written to ot1d_platform_report.txt (in the root of the repository):
 # that file is all that is needed to diagnose a failure.
 # It needs a network connection for pip.
 
-param([switch]$Quick)
+param([switch]$Quick, [switch]$Save)
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
@@ -228,7 +231,7 @@ try {
             $global:LASTEXITCODE = $code
         }
         if (-not $Quick) {
-            Step "Benchmark" { & $py $bench }
+            Step "Benchmark" { if ($Save) { & $py $bench --save } else { & $py $bench } }
         }
         Set-Location $Root
     } else {

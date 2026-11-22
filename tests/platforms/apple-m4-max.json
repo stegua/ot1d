@@ -1,0 +1,28 @@
+{
+  "machine": "Mac Studio",
+  "cpu": "Apple M4 Max",
+  "cores": 16,
+  "memory_gb": 128,
+  "os": "macOS 15.6",
+  "compiler": "Apple Clang 17.0",
+  "python": "3.15.2",
+  "numpy": "",
+  "ot1d": "0.5.1.dev0",
+  "simd": "none",
+  "date": "2026-11-22",
+  "results": {
+    "np_sort": 0.299,
+    "reference": 0.211,
+    "reference_weights": 0.716,
+    "w1_ref_ecdf": 0.094,
+    "w2_ref_ecdf": 0.092,
+    "w1_ref_simplex": 9.576,
+    "w1_sorted_simplex": 1.255,
+    "w1_sorted_ecdf": 43.19,
+    "w1_unsorted": 0.205,
+    "sort_1": 0.181,
+    "sort_8": 0.039,
+    "batch_1": 0.18,
+    "batch_8": 0.029
+  }
+}
