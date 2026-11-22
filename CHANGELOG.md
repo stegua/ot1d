@@ -2,6 +2,15 @@
 
 ## 0.5.1 (in development)
 
+### Fixed
+* `method='simplex'` (and `OT1D`), samples without weights and of different sizes: the rounding
+  error of the merge grew with the number of points, up to 1.6e-10 relative for 3*10^7 points with
+  many ties. The terms are now added in short blocks, and the blocks with compensated summation:
+  the relative error stays near 1e-15, at the same speed.
+* `method='ecdf'`: W1 could be slightly negative (a few 1e-17 times the scale of the data) on
+  samples very close to the reference, for instance drawn from its points. A sum that rounding
+  leaves below 0 is now returned as 0, as it already was for W2.
+
 ### Changed
 * `sorting=False` (and `method='simplex'` on a reference) no longer copies the input: the merge
   reads the arrays of the caller, with or without weights. Before, every call copied both samples
@@ -15,11 +24,6 @@
   5 million points and 4 threads (10^7 values: 44 ms with 8 threads, 66 ms with one), and items
   with a plan; pairs (value, weight) are sorted by one thread, which was already faster than the
   previous parallel sort (156 ms instead of 236 ms with 8 threads).
-
-### Fixed
-* `method='ecdf'`: W1 could be slightly negative (a few 1e-17 times the scale of the data) on
-  samples very close to the reference, for instance drawn from its points. A sum that rounding
-  leaves below 0 is now returned as 0, as it already was for W2.
 
 ## 0.5.0 (2026-11-21)
 

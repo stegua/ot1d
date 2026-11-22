@@ -637,6 +637,26 @@ static void test_ot1d_precision() {
         printf("Precision on ties, n=%d m=%d: W%d relative error %.2e\n", n, m, p, err);
         CHECK(err < 1e-12, "precision on ties W%d: relative error %.3g (compensation lost?)", p, err);
     }
+    // The simplex merge: without the block sums of the kernels, the error on
+    // these data is about 1e-12 (and 1e-10 with 3*10^7 points).
+    std::vector<double> xs(x), y3(n / 3);
+    for (auto& v : y3) v = std::floor(N(gen) + 0.3);
+    std::sort(xs.begin(), xs.end());
+    std::sort(y.begin(), y.end());
+    std::sort(y3.begin(), y3.end());
+    const std::vector<double>* others[] = {&y, &y3, &xs};
+    for (const std::vector<double>* q : others)
+        for (int p = 1; p <= 2; p++) {
+            std::vector<double> t(*q);
+            if (q == &xs)
+                for (auto& v : t) v += 1.0;  // same size: the loop without the merge
+            const int64_t mq = (int64_t)t.size();
+            double r = merge_ld(xs, t, p);
+            double z = p == 1 ? ot1d::w1(xs.data(), n, t.data(), mq, ot1d::Method::Simplex, false)
+                              : ot1d::w2(xs.data(), n, t.data(), mq, ot1d::Method::Simplex, false);
+            double err = std::fabs(z - r) / r;
+            CHECK(err < 2e-14, "precision of the simplex merge W%d, m=%lld: relative error %.3g", p, (long long)mq, err);
+        }
 }
 
 static void test_ot1d_invalid() {

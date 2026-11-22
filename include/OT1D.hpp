@@ -91,6 +91,35 @@ template <typename T> inline bool _simd_sort(size_t, T*) { return false; }
 #define OT1D_USE_SIMD
 #endif
 
+// Compensated summation needs the floating point operations in the order they
+// are written, also when the file is compiled with -ffast-math: the functions
+// that use it are marked with OT1D_PRECISE_ATTR (GCC) and start with
+// OT1D_PRECISE_SCOPE (Clang).
+#if defined(__clang__)
+#define OT1D_PRECISE_ATTR
+#define OT1D_PRECISE_SCOPE _Pragma("clang fp reassociate(off)")
+#elif defined(__GNUC__)
+#define OT1D_PRECISE_ATTR __attribute__((optimize("no-fast-math")))
+#define OT1D_PRECISE_SCOPE
+#else
+#define OT1D_PRECISE_ATTR
+#define OT1D_PRECISE_SCOPE
+#endif
+
+// Neumaier compensated summation step: (s + c) += x. Use it only inside
+// functions marked OT1D_PRECISE_ATTR / OT1D_PRECISE_SCOPE.
+#define OT1D_NEUMAIER(s, c, x)                                         \
+    do {                                                               \
+        double ot1d_x_ = (x);                                          \
+        double ot1d_t_ = (s) + ot1d_x_;                                \
+        if (std::fabs(s) >= std::fabs(ot1d_x_))                        \
+            (c) += ((s) - ot1d_t_) + ot1d_x_;                          \
+        else                                                           \
+            (c) += (ot1d_x_ - ot1d_t_) + (s);                          \
+        (s) = ot1d_t_;                                                 \
+    } while (0)
+
+
 namespace ot1d_simd {
 
 enum Level { NONE = 0, AVX2 = 1, AVX512 = 2 };
@@ -432,6 +461,26 @@ inline void sort_pairs(int64_t n, double* key, double* val, int threads, std::ve
     }
 }
 
+// Sum of many terms for the merge kernels. The kernels are compiled with the
+// flags of the caller (possibly -ffast-math) and add their terms in short
+// blocks with a plain sum; each block is then added here with a compensated
+// step. The rounding error no longer grows with the number of terms (it did:
+// 1e-10 relative with 3*10^7 points on data with many ties).
+struct block_sum {
+    double s, e;
+    block_sum() : s(0.0), e(0.0) {}
+    OT1D_PRECISE_ATTR void add(double x) {
+        OT1D_PRECISE_SCOPE
+        OT1D_NEUMAIER(s, e, x);
+    }
+    OT1D_PRECISE_ATTR double value() const {
+        OT1D_PRECISE_SCOPE
+        return s + e;
+    }
+};
+
+const int BLOCK_STEPS = 64;  // a block ends after this many points of one measure
+
 template <int P>
 inline double cost(double x, double y) {
     double d = x - y;
@@ -470,19 +519,27 @@ inline double uniform_kernel(int m, int n, GetX getx, GetY gety, PlanWriter& pla
     int64_t A = n;
     int64_t B = m;
     int i = 0, j = 0;
-    double z = 0.0;
+    block_sum sum;
 
     while (i < m && j < n) {
-        int64_t t = A < B ? A : B;
-        double w = (double)t * unit;
-        z += w * cost<P>(getx(i), gety(j));
-        plan.add(ix ? ix[i] : i, iy ? iy[j] : j, w);
-        A -= t;
-        B -= t;
-        if (A == 0) { i++; A = n; }
-        if (B == 0) { j++; B = m; }
+        // One block: at most BLOCK_STEPS points of each measure (the inner loop
+        // has the same two comparisons as a loop over the whole arrays)
+        const int iend = (m - i < BLOCK_STEPS) ? m : i + BLOCK_STEPS;
+        const int jend = (n - j < BLOCK_STEPS) ? n : j + BLOCK_STEPS;
+        double z = 0.0;
+        while (i < iend && j < jend) {
+            int64_t t = A < B ? A : B;
+            double w = (double)t * unit;
+            z += w * cost<P>(getx(i), gety(j));
+            plan.add(ix ? ix[i] : i, iy ? iy[j] : j, w);
+            A -= t;
+            B -= t;
+            if (A == 0) { i++; A = n; }
+            if (B == 0) { j++; B = m; }
+        }
+        sum.add(z);
     }
-    return z;
+    return sum.value();
 }
 
 inline int item_index(const dbl_pair_idx_t& e, int) { return e.i; }
@@ -504,20 +561,27 @@ inline double weighted_kernel(int m, int n, GetX getx, GetA geta, IdX idx, GetY 
     int i = 0, j = 0;
     double A = geta(0);
     double B = getb(0);
-    double z = 0.0;
+    block_sum sum;
 
     while (i < m && j < n) {
-        double t = A < B ? A : B;
-        if (t > 0) {
-            z += t * cost<P>(getx(i), gety(j));
-            plan.add(idx(i), idy(j), t);
+        // Blocks as in uniform_kernel
+        const int iend = (m - i < BLOCK_STEPS) ? m : i + BLOCK_STEPS;
+        const int jend = (n - j < BLOCK_STEPS) ? n : j + BLOCK_STEPS;
+        double z = 0.0;
+        while (i < iend && j < jend) {
+            double t = A < B ? A : B;
+            if (t > 0) {
+                z += t * cost<P>(getx(i), gety(j));
+                plan.add(idx(i), idy(j), t);
+            }
+            A -= t;
+            B -= t;
+            if (A <= eps) { i++; if (i < m) A = geta(i); }
+            if (B <= eps) { j++; if (j < n) B = getb(j); }
         }
-        A -= t;
-        B -= t;
-        if (A <= eps) { i++; if (i < m) A = geta(i); }
-        if (B <= eps) { j++; if (j < n) B = getb(j); }
+        sum.add(z);
     }
-    return z;
+    return sum.value();
 }
 
 // The same on plain arrays, already sorted (no copies, no plan).
@@ -538,9 +602,19 @@ inline void set_size(int* map_size, int k) {
 template <int P>
 inline double uniform_sorted(int m, int n, const double* x, const double* y) {
     if (m == n) {
+        // Plain sums over short blocks (vectorized with -ffast-math)
+        block_sum sum;
+        const int W = 1024;  // a constant number of terms, so that the loop is unrolled
+        int i = 0;
+        for (; i + W <= n; i += W) {
+            double z = 0.0;
+            for (int k = 0; k < W; k++) z += cost<P>(x[i + k], y[i + k]);
+            sum.add(z);
+        }
         double z = 0.0;
-        for (int i = 0; i < n; i++) z += cost<P>(x[i], y[i]);
-        return z / n;
+        for (; i < n; i++) z += cost<P>(x[i], y[i]);
+        sum.add(z);
+        return sum.value() / n;
     }
     PlanWriter plan(nullptr, nullptr);
     return uniform_kernel<P>(m, n, [&](int i) { return x[i]; }, [&](int j) { return y[j]; },
@@ -761,30 +835,12 @@ inline double OT1Dd_withplan(int m, int n, double* x, double* y, double* a, doub
 //     so a W2 below about 1e-7 * std(x) (for instance, a query equal to the
 //     reference) is returned as about 1e-8 * std(x) instead of 0. p = 1 has no
 //     such floor.
-
-#if defined(__clang__)
-#define OT1D_PRECISE_ATTR
-#define OT1D_PRECISE_SCOPE _Pragma("clang fp reassociate(off)")
-#elif defined(__GNUC__)
-#define OT1D_PRECISE_ATTR __attribute__((optimize("no-fast-math")))
-#define OT1D_PRECISE_SCOPE
-#else
-#define OT1D_PRECISE_ATTR
-#define OT1D_PRECISE_SCOPE
-#endif
-
-// Neumaier compensated summation step: (s + c) += x. Use it only inside
-// functions marked OT1D_PRECISE_ATTR / OT1D_PRECISE_SCOPE.
-#define OT1D_NEUMAIER(s, c, x)                                         \
-    do {                                                               \
-        double ot1d_x_ = (x);                                          \
-        double ot1d_t_ = (s) + ot1d_x_;                                \
-        if (std::fabs(s) >= std::fabs(ot1d_x_))                        \
-            (c) += ((s) - ot1d_t_) + ot1d_x_;                          \
-        else                                                           \
-            (c) += (ot1d_x_ - ot1d_t_) + (s);                          \
-        (s) = ot1d_t_;                                                 \
-    } while (0)
+//
+// Numerical precision of Method::Simplex: the terms of the merge are added in
+// short blocks, and the blocks with compensated summation (see block_sum), so
+// with uniform weights the relative error stays near 1e-15 for any size. With
+// weights, the merge treats residual masses below 1e-13 of the total mass as
+// zero, which limits the relative precision to about 1e-11.
 
 namespace ot1d {
 
