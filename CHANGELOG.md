@@ -20,6 +20,9 @@
   bits of the values from memory.
 * MSVC with `/fp:fast`: a distance that overflows was not `inf`. Under MSVC the header is now
   always compiled with the precise floating point model.
+* A reference with weights whose largest point has weight zero: that weight could come out as
+  about -2e-16 in `weights`, and then the reference could not be pickled (nor rebuilt from its
+  weights in C++).
 * `OT1D(..., plan=True)`, `w1_plan` and `w2_plan` raised `ValueError: cannot resize an array` on
   Python 3.14 and later.
 
@@ -41,6 +44,9 @@
   5 million points and 4 threads (10^7 values: 44 ms with 8 threads, 66 ms with one), and items
   with a plan; pairs (value, weight) are sorted by one thread, which was already faster than the
   previous parallel sort (156 ms instead of 236 ms with 8 threads).
+* The vectorized sort (x86-simd-sort, AVX2 and AVX-512) is now built also on Windows with MSVC,
+  as on Linux and macOS: on an AVX2 laptop, sorting 10^7 values takes 0.15 s instead of 0.81 s
+  (`np.sort`: 0.14 s), and preparing a reference of 10^7 points 0.20 s.
 
 ### Packaging
 * Wheels for CPython 3.8 to 3.14 on Linux (x86-64, aarch64), macOS (Intel, Apple Silicon) and

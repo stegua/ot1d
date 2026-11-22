@@ -382,6 +382,24 @@ def test_overflow_is_inf(method):
 
 
 @native_only
+def test_weights_never_negative():
+    """A zero weight on the largest point came out as about -2e-16 (the last cumulative weight
+    is exactly 1, the one before it is a rounded sum), and the reference could not be pickled."""
+    import pickle
+
+    r = np.random.default_rng(0)
+    for t in range(2000):  # with this seed, iterations 1551, 1728 and 1920 failed
+        n = int(r.integers(2, 400))
+        x, a = r.normal(size=n), r.random(n)
+        a[np.argmax(x)] = 0.0
+        if t % 3 == 0:
+            a[r.integers(0, n, n // 3)] = 0.0
+        R = ot1d.reference(x, a)
+        assert R.weights.min() >= 0.0
+        assert len(pickle.loads(pickle.dumps(R))) == n
+
+
+@native_only
 def test_batch_rejects_single_sample():
     r = np.random.default_rng(15)
     R = ot1d.reference(r.normal(size=100))

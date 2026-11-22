@@ -263,9 +263,13 @@ cdef class reference:
         out = np.empty(n, dtype=float)
         cdef double[::1] o = out
         cdef int64_t i
+        cdef double w
         with nogil:
             for i in range(n):
-                o[i] = U[i + 1] - U[i]
+                # U[n] is exactly 1, while the compensated sum U[n - 1] can exceed 1 by a
+                # few ulps: a zero last weight would come out slightly negative
+                w = U[i + 1] - U[i]
+                o[i] = w if w > 0.0 else 0.0
         out.flags.writeable = False
         return out
 
