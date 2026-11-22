@@ -96,8 +96,8 @@ def test_matches_merge(kind, n, m, p, method):
     if want == 0:
         assert abs(got) < 1e-12
     else:
-        # The merge (simplex) accumulates n + m terms in a plain running sum: up to 1.7e-11
-        assert rel(got, want) < (TOL if method == "ecdf" else 5e-11), (got, want)
+        # Since 0.5.1 the merge (simplex) uses compensated block sums: it was up to 1.7e-11
+        assert rel(got, want) < (TOL if method == "ecdf" else 1e-13), (got, want)
 
 
 @pytest.mark.parametrize("p", [1, 2])
@@ -312,7 +312,7 @@ def test_presorted_reference(method, weighted):
     for wref, wpair in ((ot1d.w1_reference, ot1d.w1), (ot1d.w2_reference, ot1d.w2)):
         z = wref(R, y, method=method)
         assert rel(wref(Rs, y, method=method), z) < 1e-12
-        assert rel(wpair(R.sorted_values, y, R.weights, method=method, sorting=False), z) < 5e-11
+        assert rel(wpair(R.sorted_values, y, R.weights, method=method, sorting=False), z) < 1e-12
     with pytest.raises(ValueError):
         ot1d.reference(x, a, sorting=False)  # not sorted
     with pytest.raises(ValueError):

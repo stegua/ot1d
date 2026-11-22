@@ -556,7 +556,7 @@ inline double weighted_kernel(int m, int n, GetX getx, GetA geta, IdX idx, GetY 
     double total = 0.0;
     for (int i = 0; i < m; i++) total += std::fabs(geta(i));
     for (int j = 0; j < n; j++) total += std::fabs(getb(j));
-    const double eps = 1e-13 * total;
+    const double eps = 1e-15 * total;
 
     int i = 0, j = 0;
     double A = geta(0);
@@ -838,9 +838,9 @@ inline double OT1Dd_withplan(int m, int n, double* x, double* y, double* a, doub
 //
 // Numerical precision of Method::Simplex: the terms of the merge are added in
 // short blocks, and the blocks with compensated summation (see block_sum), so
-// with uniform weights the relative error stays near 1e-15 for any size. With
-// weights, the merge treats residual masses below 1e-13 of the total mass as
-// zero, which limits the relative precision to about 1e-11.
+// the relative error stays near 1e-15 for any size, with or without weights.
+// With weights, the merge treats residual masses below 1e-15 of the total mass
+// as zero (it was 1e-13 up to v0.5.0, which limited the precision to 1e-11).
 
 namespace ot1d {
 

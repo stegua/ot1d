@@ -7,6 +7,10 @@
   error of the merge grew with the number of points, up to 1.6e-10 relative for 3*10^7 points with
   many ties. The terms are now added in short blocks, and the blocks with compensated summation:
   the relative error stays near 1e-15, at the same speed.
+* `method='simplex'` (and `OT1D`) with weights: the merge treated residual masses below 1e-13 of
+  the total mass as zero, which limited the relative precision to about 1e-11. The threshold is
+  now 1e-15, and the error is near 1e-15. A plan can now contain entries with a mass between
+  1e-15 and 1e-13 of the total, which were dropped before.
 * `method='ecdf'`: W1 could be slightly negative (a few 1e-17 times the scale of the data) on
   samples very close to the reference, for instance drawn from its points. A sum that rounding
   leaves below 0 is now returned as 0, as it already was for W2.

@@ -657,6 +657,48 @@ static void test_ot1d_precision() {
             double err = std::fabs(z - r) / r;
             CHECK(err < 2e-14, "precision of the simplex merge W%d, m=%lld: relative error %.3g", p, (long long)mq, err);
         }
+    // The same with weights, against a long double integration over the
+    // breakpoints of the two cumulative distributions. With the mass tolerance
+    // of v0.5.0 (1e-13 of the total mass) the error was about 1e-11.
+    std::uniform_real_distribution<> U(0.1, 1.0);
+    std::vector<double> a(n), b(y3.size());
+    long double sa = 0, sb = 0;
+    // Weights that are small integers plus a part of relative size 1e-7: the
+    // residual masses of the merge are then often tiny, but not rounding errors
+    // (values without ties, so that a mass moved to the next point changes the cost)
+    for (auto& v : xs) v = N(gen);
+    for (auto& v : y3) v = N(gen) + 0.3;
+    std::sort(xs.begin(), xs.end());
+    std::sort(y3.begin(), y3.end());
+    std::uniform_int_distribution<> K(1, 3);
+    for (auto& v : a) { v = K(gen) + 1e-7 * U(gen); sa += v; }
+    for (auto& v : b) { v = 3.0 * (K(gen) + 1e-7 * U(gen)); sb += v; }
+    for (auto& v : a) v = (double)(v / sa);
+    for (auto& v : b) v = (double)(v / sb);
+    sa = 0; sb = 0;
+    for (double v : a) sa += v;
+    for (double v : b) sb += v;
+    for (int p = 1; p <= 2; p++) {
+        // Both measures normalized to mass 1 in long double: the totals differ by
+        // rounding only, and the merge transports the smaller one
+        size_t i = 0, j = 0;
+        long double fa = a[0] / sa, fb = b[0] / sb, cur = 0, r = 0;
+        while (i < a.size() && j < b.size()) {
+            long double nxt = fa < fb ? fa : fb;
+            long double d = (long double)xs[i] - y3[j];
+            r += (nxt - cur) * (p == 1 ? fabsl(d) : d * d);
+            cur = nxt;
+            const bool ia = fa <= nxt, jb = fb <= nxt;
+            if (ia) { i++; if (i < a.size()) fa += a[i] / sa; }
+            if (jb) { j++; if (j < b.size()) fb += b[j] / sb; }
+        }
+        if (p == 2) r = sqrtl(r);
+        double z = p == 1 ? ot1d::w1(xs.data(), a.data(), n, y3.data(), b.data(), (int64_t)y3.size(), ot1d::Method::Simplex, false)
+                          : ot1d::w2(xs.data(), a.data(), n, y3.data(), b.data(), (int64_t)y3.size(), ot1d::Method::Simplex, false);
+        double err = (double)(fabsl(z - r) / r);
+        printf("Precision of the weighted simplex merge, n=%d m=%d: W%d relative error %.2e\n", n, (int)y3.size(), p, err);
+        CHECK(err < 1e-13, "precision of the weighted simplex merge W%d: relative error %.3g", p, err);
+    }
 }
 
 static void test_ot1d_invalid() {
