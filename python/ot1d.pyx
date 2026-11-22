@@ -47,7 +47,7 @@ from _ot1d_cpp cimport (OT1Da0, OT1Db0, OT1Da, OT1Db, OT1Dc, OT1Dd,
                         Method, c_reference, c_w1, c_w2,
                         c_w1_reference, c_w2_reference, c_w1_batch, c_w2_batch)
 
-__version__ = "0.5.1.dev0"
+__version__ = "0.5.1"
 
 cdef Method _method(method) except *:
     if method == 'simplex':

@@ -94,7 +94,7 @@ with open('README.md', encoding="utf-8") as f:
 
 setup(
     name='OT1D',
-    version='0.5.1.dev0',
+    version='0.5.1',
     packages=find_packages(),
     description='Discrete Optimal Transport in 1D by Linear Programming',
     author='Stefano Gualandi',

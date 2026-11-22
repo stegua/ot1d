@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 (in development)
+## 0.5.1 (2026-11-22)
 
 ### Fixed
 * `method='simplex'` (and `OT1D`), samples without weights and of different sizes: the rounding
