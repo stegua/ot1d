@@ -488,34 +488,46 @@ inline double uniform_kernel(int m, int n, GetX getx, GetY gety, PlanWriter& pla
 inline int item_index(const dbl_pair_idx_t& e, int) { return e.i; }
 inline int item_index(const dbl_w_t&, int k) { return k; }
 
-// North-west corner rule on sorted supports with arbitrary weights.
+// North-west corner rule on sorted supports with arbitrary weights: point i of
+// the first measure is getx(i) with weight geta(i) (and position idx(i) in the
+// plan), and likewise gety, getb, idy for the second one.
 // Residuals smaller than eps (relative to the total mass) are treated as zero,
 // so that rounding errors do not produce spurious tiny plan entries.
-template <int P, typename Item>
-inline double weighted_kernel(int m, int n, const std::vector<Item>& mu, const std::vector<Item>& nu,
+template <int P, typename GetX, typename GetA, typename IdX, typename GetY, typename GetB, typename IdY>
+inline double weighted_kernel(int m, int n, GetX getx, GetA geta, IdX idx, GetY gety, GetB getb, IdY idy,
                               PlanWriter& plan) {
     double total = 0.0;
-    for (int i = 0; i < m; i++) total += std::fabs(mu[i].ai);
-    for (int j = 0; j < n; j++) total += std::fabs(nu[j].ai);
+    for (int i = 0; i < m; i++) total += std::fabs(geta(i));
+    for (int j = 0; j < n; j++) total += std::fabs(getb(j));
     const double eps = 1e-13 * total;
 
     int i = 0, j = 0;
-    double A = mu[0].ai;
-    double B = nu[0].ai;
+    double A = geta(0);
+    double B = getb(0);
     double z = 0.0;
 
     while (i < m && j < n) {
         double t = A < B ? A : B;
         if (t > 0) {
-            z += t * cost<P>(mu[i].xi, nu[j].xi);
-            plan.add(item_index(mu[i], i), item_index(nu[j], j), t);
+            z += t * cost<P>(getx(i), gety(j));
+            plan.add(idx(i), idy(j), t);
         }
         A -= t;
         B -= t;
-        if (A <= eps) { i++; if (i < m) A = mu[i].ai; }
-        if (B <= eps) { j++; if (j < n) B = nu[j].ai; }
+        if (A <= eps) { i++; if (i < m) A = geta(i); }
+        if (B <= eps) { j++; if (j < n) B = getb(j); }
     }
     return z;
+}
+
+// The same on plain arrays, already sorted (no copies, no plan).
+template <int P>
+inline double weighted_arrays(int m, int n, const double* x, const double* a, const double* y, const double* b) {
+    PlanWriter plan(nullptr, nullptr);
+    auto same = [](int k) { return k; };
+    return weighted_kernel<P>(m, n,
+                              [=](int i) { return x[i]; }, [=](int i) { return a[i]; }, same,
+                              [=](int j) { return y[j]; }, [=](int j) { return b[j]; }, same, plan);
 }
 
 inline void set_size(int* map_size, int k) {
@@ -546,14 +558,15 @@ inline double uniform(int m, int n, const double* x0, const double* y0,
     }
 
     double z = 0.0;
-    if (map == nullptr) {
+    if (map == nullptr && !sorting) {
+        // Value only, already sorted: the arrays of the caller are read in place
+        z = uniform_sorted<P>(m, n, x0, y0);
+    } else if (map == nullptr) {
         // Value only: sort plain copies of the values
         std::vector<double> x(x0, x0 + m);
         std::vector<double> y(y0, y0 + n);
-        if (sorting) {
-            sort_values(m, x.data(), threads);
-            sort_values(n, y.data(), threads);
-        }
+        sort_values(m, x.data(), threads);
+        sort_values(n, y.data(), threads);
         z = uniform_sorted<P>(m, n, x.data(), y.data());
     } else {
         // Keep track of the original indices to build the plan
@@ -594,7 +607,11 @@ inline double weighted_sorted(int m, int n, const double* x, const double* y, co
         sort_items(mu, cmp, threads);
         sort_items(nu, cmp, threads);
     }
-    return weighted_kernel<P>(m, n, mu, nu, plan);
+    return weighted_kernel<P>(m, n,
+                              [&](int i) { return mu[i].xi; }, [&](int i) { return mu[i].ai; },
+                              [&](int i) { return item_index(mu[i], i); },
+                              [&](int j) { return nu[j].xi; }, [&](int j) { return nu[j].ai; },
+                              [&](int j) { return item_index(nu[j], j); }, plan);
 }
 
 // Arbitrary weights.
@@ -607,9 +624,13 @@ inline double weighted(int m, int n, const double* x, const double* y, const dou
         return 0.0;
     }
 
-    double z = (map == nullptr)
-        ? weighted_sorted<P, dbl_w_t>(m, n, x, y, a, b, plan, sorting, threads)
-        : weighted_sorted<P, dbl_pair_idx_t>(m, n, x, y, a, b, plan, sorting, threads);
+    double z;
+    if (map != nullptr)
+        z = weighted_sorted<P, dbl_pair_idx_t>(m, n, x, y, a, b, plan, sorting, threads);
+    else if (sorting)
+        z = weighted_sorted<P, dbl_w_t>(m, n, x, y, a, b, plan, sorting, threads);
+    else  // value only, already sorted: the arrays of the caller are read in place
+        z = weighted_arrays<P>(m, n, x, a, y, b);
     set_size(map_size, plan.k);
     return finalize<P>(z);
 }
@@ -961,7 +982,6 @@ OT1D_PRECISE_ATTR inline void fit_weighted(const double* r, const double* w, int
 struct scratch {
     std::vector<double> y, b;
     std::vector<dbl_pair_t> tmp;
-    std::vector<dbl_w_t> mu, nu;
 };
 
 } // namespace detail
@@ -1257,27 +1277,23 @@ OT1D_PRECISE_ATTR double ecdf_weighted(const reference& R, const double* y, cons
 // ------------------------------------------------- simplex on a reference
 
 template <int P>
-double simplex_reference(const reference& R, const double* y, const double* b, double bsum, int64_t m,
-                         scratch& s) {
+double simplex_reference(const reference& R, const double* y, const double* b, double bsum, int64_t m) {
     const int nr = to_int(R.size()), mq = to_int(m);
     const double* r = R.r();
     double z;
     if (R.uniform() && b == nullptr) {
         z = ot1d_detail::uniform_sorted<P>(nr, mq, r, y);
     } else {
-        // Probability measures on both sides
-        s.mu.resize(nr);
-        s.nu.resize(mq);
-        if (R.uniform()) {
-            for (int i = 0; i < nr; i++) s.mu[i] = dbl_w_t(r[i], 1.0 / nr, i);
-        } else {
-            const double* U = R.U();
-            for (int i = 0; i < nr; i++) s.mu[i] = dbl_w_t(r[i], U[i + 1] - U[i], i);
-        }
-        for (int j = 0; j < mq; j++)
-            s.nu[j] = dbl_w_t(y[j], b != nullptr ? b[j] / bsum : 1.0 / mq, j);
+        // Probability measures on both sides, read in place (no copies)
+        const double* U = R.U();
+        const bool ru = R.uniform();
+        const double wr = 1.0 / nr, wq = 1.0 / mq;
         ot1d_detail::PlanWriter plan(nullptr, nullptr);
-        z = ot1d_detail::weighted_kernel<P>(nr, mq, s.mu, s.nu, plan);
+        auto same = [](int k) { return k; };
+        z = ot1d_detail::weighted_kernel<P>(
+            nr, mq,
+            [=](int i) { return r[i]; }, [=](int i) { return ru ? wr : U[i + 1] - U[i]; }, same,
+            [=](int j) { return y[j]; }, [=](int j) { return b != nullptr ? b[j] / bsum : wq; }, same, plan);
     }
     return ot1d_detail::finalize<P>(z);
 }
@@ -1300,7 +1316,7 @@ double run(const reference& R, const double* y, const double* b, double bsum, in
         y = s.y.data();
     }
     double z;
-    if (method == Method::Simplex) z = simplex_reference<P>(R, y, b, bsum, m, s);
+    if (method == Method::Simplex) z = simplex_reference<P>(R, y, b, bsum, m);
     else if (R.uniform() && b == nullptr) z = ecdf_uniform<P>(R, y, m);
     else z = ecdf_weighted<P>(R, y, b, bsum, m);
     return overflow_to_inf(z);
@@ -1374,6 +1390,17 @@ double pair(const double* x, const double* a, int64_t n, const double* y, const 
             return overflow_to_inf(
                 ot1d_detail::uniform<P>(ni, mi, x, y, nullptr, nullptr, nullptr, sorting, threads));
         // Weights on one side only: the other side is uniform with the same total mass
+        if (!sorting && (a == nullptr || b == nullptr)) {
+            // Already sorted: read in place, with a constant weight on the other side
+            const double wa = (a == nullptr) ? check_weights(b, m, "y") / (double)n : 0.0;
+            const double wb = (b == nullptr) ? check_weights(a, n, "x") / (double)m : 0.0;
+            ot1d_detail::PlanWriter plan(nullptr, nullptr);
+            auto same = [](int k) { return k; };
+            return overflow_to_inf(ot1d_detail::finalize<P>(ot1d_detail::weighted_kernel<P>(
+                ni, mi,
+                [=](int i) { return x[i]; }, [=](int i) { return a != nullptr ? a[i] : wa; }, same,
+                [=](int j) { return y[j]; }, [=](int j) { return b != nullptr ? b[j] : wb; }, same, plan)));
+        }
         std::vector<double> fill;
         if (a == nullptr) {
             fill.assign((size_t)n, check_weights(b, m, "y") / (double)n);

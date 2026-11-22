@@ -24,6 +24,30 @@
 static int failures = 0;
 static int checks = 0;
 
+// Counts the bytes allocated with operator new, to check that the functions
+// called on sorted input read the arrays of the caller without copying them.
+// Not under the sanitizers, which replace the allocator themselves.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define COUNT_ALLOCATIONS 0
+#else
+#define COUNT_ALLOCATIONS 1
+#include <atomic>
+#include <cstdlib>
+#include <new>
+static std::atomic<long long> allocated(0);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"  // malloc and free do match here
+#endif
+void* operator new(std::size_t size) {
+    allocated += (long long)size;
+    void* p = std::malloc(size ? size : 1);
+    if (p == nullptr) throw std::bad_alloc();
+    return p;
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+#endif
+
 #define CHECK(cond, ...)                                    \
     do {                                                    \
         ++checks;                                           \
@@ -247,6 +271,63 @@ static void test_parallel_sort(std::mt19937& gen) {
         }
     }
 }
+
+#if COUNT_ALLOCATIONS
+// With sorted input and no plan, nothing is copied (and nothing is allocated).
+static void test_no_copies(std::mt19937& gen) {
+    std::uniform_real_distribution<> U(0.1, 1.0);
+    const int n = 5000, m = 3000;
+    std::vector<double> x(n), y(m), a(n), b(m), e(n);
+    for (auto& v : x) v = U(gen);
+    for (auto& v : y) v = U(gen);
+    for (auto& v : e) v = U(gen);
+    std::sort(x.begin(), x.end());
+    std::sort(y.begin(), y.end());
+    std::sort(e.begin(), e.end());
+    double sa = 0, sb = 0;
+    for (auto& v : a) { v = U(gen); sa += v; }
+    for (auto& v : b) { v = U(gen); sb += v; }
+    for (auto& v : a) v /= sa;
+    for (auto& v : b) v /= sb;
+    double* X = x.data(); double* Y = y.data(); double* A = a.data(); double* B = b.data(); double* E = e.data();
+    const ot1d::Method S = ot1d::Method::Simplex;
+    ot1d::reference R(X, n), RW(X, A, n);
+
+    std::function<double()> calls[] = {
+        [&] { return OT1Da0(n, X, E, false, 1); },
+        [&] { return OT1Db0(n, X, E, false, 1); },
+        [&] { return OT1Da(n, m, X, Y, false, 1); },
+        [&] { return OT1Db(n, m, X, Y, false, 4); },
+        [&] { return OT1Dc(n, m, X, Y, A, B, false, 1); },
+        [&] { return OT1Dd(n, m, X, Y, A, B, false, 4); },
+        [&] { return ot1d::w1(X, n, Y, m, S, false); },
+        [&] { return ot1d::w2(X, n, Y, m, S, false); },
+        [&] { return ot1d::w1(X, A, n, Y, B, m, S, false); },
+        [&] { return ot1d::w2(X, A, n, Y, B, m, S, false); },
+        [&] { return ot1d::w1(X, A, n, Y, nullptr, m, S, false); },
+        [&] { return ot1d::w2(X, nullptr, n, Y, B, m, S, false); },
+        [&] { return ot1d::w1_reference(R, Y, m, S, true); },
+        [&] { return ot1d::w2_reference(R, Y, m, S, true); },
+        [&] { return ot1d::w1_reference(R, Y, B, m, S, true); },
+        [&] { return ot1d::w2_reference(RW, Y, m, S, true); },
+        [&] { return ot1d::w1_reference(RW, Y, B, m, S, true); },
+        [&] { return ot1d::w1_reference(R, Y, m, ot1d::Method::Ecdf, true); },
+        [&] { return ot1d::w2_reference(RW, Y, B, m, ot1d::Method::Ecdf, true); },
+    };
+    // The counter does see the copies made when the input must be sorted
+    long long start = allocated;
+    OT1Da(n, m, X, Y, true, 1);
+    CHECK(allocated - start >= (long long)((n + m) * sizeof(double)), "the allocation counter does not count");
+    int k = 0;
+    for (auto& call : calls) {
+        const long long before = allocated;
+        double z = call();
+        const long long bytes = allocated - before;
+        CHECK(bytes == 0 && z > 0.0, "call %d on sorted input allocated %lld bytes (value %g)", k, bytes, z);
+        k++;
+    }
+}
+#endif
 
 static void test_unequal_mass() {
     // Total masses 3 and 1.5: only 1.5 is transported (partial plan).
@@ -626,6 +707,9 @@ int main() {
     test_input_not_modified();
     test_unequal_mass();
     test_parallel_sort(gen);
+#if COUNT_ALLOCATIONS
+    test_no_copies(gen);
+#endif
 #ifdef OT1D_USE_SIMD
     test_simd_level(ot1d_simd::AVX2);
     test_simd_level(ot1d_simd::AVX512);
